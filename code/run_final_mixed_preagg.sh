@@ -22,6 +22,7 @@ MAX_PENDING_EVENTS="${MAX_PENDING_EVENTS:-0}"
 UNIQUE_EVENTS_REQUIRED="${UNIQUE_EVENTS_REQUIRED:-0}"
 SUMMARY_ONLY="${SUMMARY_ONLY:-0}"
 SKIP_REPORTS="${SKIP_REPORTS:-0}"
+NO_WRITES="${NO_WRITES:-0}"
 BENCHMARK_LABEL_PREFIX="${BENCHMARK_LABEL_PREFIX:-v15}"
 
 LOG="logs/mixed_traffic_${LABEL}_$(date +%Y%m%d_%H%M%S).log"
@@ -76,6 +77,10 @@ if [[ "$SUMMARY_ONLY" == "1" ]]; then
   ARGS+=(--summary-only)
 fi
 
+if [[ "$NO_WRITES" == "1" ]]; then
+  ARGS+=(--no-writes)
+fi
+
 if [[ -n "$REUSE_EVENTS_JSON" ]]; then
   ARGS+=(--reuse-events-json "$REUSE_EVENTS_JSON")
 fi
@@ -93,7 +98,7 @@ import sys
 read_rate = float(sys.argv[1])
 print(f"fanout_target={read_rate:.1f} events/sec * 65 bundles/event = {read_rate * 65:.1f} bundle SQL/sec")
 PY
-echo "normal_events=$NORMAL_EVENTS hot_events_per_field=$HOT_EVENTS_PER_FIELD pool_size=$POOL_SIZE write_pool_size=$WRITE_POOL_SIZE event_workers=$EVENT_WORKERS bundle_workers=$BUNDLE_WORKERS max_pending_events=$MAX_PENDING_EVENTS unique_events_required=$UNIQUE_EVENTS_REQUIRED summary_only=$SUMMARY_ONLY"
+echo "normal_events=$NORMAL_EVENTS hot_events_per_field=$HOT_EVENTS_PER_FIELD pool_size=$POOL_SIZE write_pool_size=$WRITE_POOL_SIZE event_workers=$EVENT_WORKERS bundle_workers=$BUNDLE_WORKERS max_pending_events=$MAX_PENDING_EVENTS unique_events_required=$UNIQUE_EVENTS_REQUIRED summary_only=$SUMMARY_ONLY no_writes=$NO_WRITES"
 echo "session: tidb_isolation_read_engines=$TIDB_ISOLATION_READ_ENGINES tidb_opt_force_inline_cte=$INTUIT_FORCE_INLINE_CTE"
 
 python3 -u mixed_traffic_test.py "${ARGS[@]}" 2>&1 | tee "$LOG"
