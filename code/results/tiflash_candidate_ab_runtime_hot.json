@@ -1,0 +1,1035 @@
+{
+  "generated_at": "2026-05-29T22:24:23",
+  "mixed_json": "/home/ec2-user/tidb_intuit_perf_support_bundle_lean/code/results/mixed_traffic_1780091850.json",
+  "preagg_mode": "runtime-only",
+  "preagg_layout": "prod180",
+  "preagg_bundles": [],
+  "distinct_pushdown": true,
+  "force_inline_cte": "0",
+  "hashagg_final_concurrency": 16,
+  "hashagg_partial_concurrency": 8,
+  "results": [
+    {
+      "bundle_id": "group_b_bundle_012",
+      "group": "B",
+      "window_days": 30,
+      "base_filter": "d.true_ip = %s",
+      "preagg_applied": false,
+      "event": {
+        "invoice_number": "INV0007589128",
+        "kind": "hot_true_ip",
+        "hot_field": "true_ip",
+        "hot_count": 738824,
+        "reference_time": "2026-04-10T23:06:57.563000"
+      },
+      "params": [
+        "72.153.231.69"
+      ],
+      "variants": [
+        {
+          "ok": true,
+          "elapsed_ms": 2400.345574998937,
+          "engines": "tikv,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:2.39s, open:1.07ms, close:13.2\u00b5s, loops:2, RU:864.84, Concurrency:OFF",
+              "Column#60->Column#92, Column#61->Column#93, Column#61->Column#94, Column#62->Column#95, Column#62->Column#96, Column#63->Column#97, Column#63->Column#98, Column#64->Column#99, Column#64->Column#100, Column#65->Column#101, Column#65->Column#102, Column#66->Column#103, Column#66->Column#104, Column#67->Column#105, Column#68->Column#106, Column#69->Column#107, Column#70->Column#108, Column#71->Column#109, Column#72->Column#110, Column#73->Column#111, Column#74->Column#112, Column#73->Column#113, Column#75->Column#114, Column#73->Column#115, Column#76->Column#116, Column#77->Column#117, Column#78->Column#118, Column#77->Column#119, Column#79->Column#120, Column#77->Column#121, Column#80->Column#122, Column#81->Column#123, Column#82->Column#124, Column#81->Column#125, Column#83->Column#126, Column#81->Column#127, Column#84->Column#128, Column#85->Column#129, Column#86->Column#130, Column#85->Column#131, Column#87->Column#132, Column#85->Column#133, Column#88->Column#134, Column#89->Column#135, Column#90->Column#136, Column#89->Column#137, Column#91->Column#138, Column#89->Column#139",
+              "38.7 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_9",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:2.39s, open:1.06ms, close:11.1\u00b5s, loops:2",
+              "gt(Column#60, ?)",
+              "38.7 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_16",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:2.39s, open:1.05ms, close:10.6\u00b5s, loops:3",
+              "funcs:count(Column#141)->Column#60, funcs:sum(Column#142)->Column#61, funcs:sum(Column#143)->Column#62, funcs:sum(Column#144)->Column#63, funcs:sum(Column#145)->Column#64, funcs:sum(Column#146)->Column#65, funcs:sum(Column#147)->Column#66, funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#67, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#68, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#69, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#70, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#71, funcs:min(Column#148)->Column#72, funcs:sum(Column#149)->Column#73, funcs:max(Column#150)->Column#74, funcs:avg(Column#151, Column#152)->Column#75, funcs:min(Column#153)->Column#76, funcs:sum(Column#154)->Column#77, funcs:max(Column#155)->Column#78, funcs:avg(Column#156, Column#157)->Column#79, funcs:min(Column#158)->Column#80, funcs:sum(Column#159)->Column#81, funcs:max(Column#160)->Column#82, funcs:avg(Column#161, Column#162)->Column#83, funcs:min(Column#163)->Column#84, funcs:sum(Column#164)->Column#85, funcs:max(Column#165)->Column#86, funcs:avg(Column#166, Column#167)->Column#87, funcs:min(Column#168)->Column#88, funcs:sum(Column#169)->Column#89, funcs:max(Column#170)->Column#90, funcs:avg(Column#171, Column#172)->Column#91",
+              "152.0 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_17",
+              "1.00",
+              "167600",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "time:2.11s, open:1.01ms, close:9.89\u00b5s, loops:11, cop_task: {num: 12, max: 2.2s, min: 1.27ms, avg: 246.6ms, p95: 2.2s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 719.9ms, tot_wait: 2.07ms, copr_cache: disabled, build_task_duration: 941.7\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.11s, rpc_info:{Cop:{num_rpc:12, total_time:2.96s}}",
+              "index:HashAgg_11",
+              "147.1 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_11",
+              "1.00",
+              "167600",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:1.08s, min:0s, avg: 130.8ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 3.01ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 719.9ms, total_suspend_time: 404.1\u00b5s, total_wait_time: 2.07ms, total_kv_read_wall_time: 30ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#141, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#142, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#143, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#144, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#145, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#146, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#147, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#148, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), ?, ?))->Column#149, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#150, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#151, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#152, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#153, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), ?, ?))->Column#154, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#155, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#156, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#157, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#158, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), ?, ?))->Column#159, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#160, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#161, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#162, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#163, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), ?, ?))->Column#164, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#165, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#166, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#167, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#168, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), ?, ?))->Column#169, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#170, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#171, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#172",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_15",
+              "359561.64",
+              "172346",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:160ms, min:0s, avg: 15.8ms, p80:10ms, p95:160ms, iters:171, tasks:12}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:2.39s, open:1.07ms, close:13.2\u00b5s, loops:2, RU:864.84, Concurrency:OFF\tColumn#60->Column#92, Column#61->Column#93, Column#61->Column#94, Column#62->Column#95, Column#62->Column#96, Column#63->Column#97, Column#63->Column#98, Column#64->Column#99, Column#64->Column#100, Column#65->Column#101, Column#65->Column#102, Column#66->Column#103, Column#66->Column#104, Column#67->Column#105, Column#68->Column#106, Column#69->Column#107, Column#70->Column#108, Column#71->Column#109, Column#72->Column#110, Column#73->Column#111, Column#74->Column#112, Column#73->Column#113, Column#75->Column#114, Column#73->Column#115, Column#76->Column#116, Column#77->Column#117, Column#78->Column#118, Column#77->Column#119, Column#79->Column#120, Column#77->Column#121, Column#80->Column#122, Column#81->Column#123, Column#82->Column#124, Column#81->Column#125, Column#83->Column#126, Column#81->Column#127, Column#84->Column#128, Column#85->Column#129, Column#86->Column#130, Column#85->Column#131, Column#87->Column#132, Column#85->Column#133, Column#88->Column#134, Column#89->Column#135, Column#90->Column#136, Column#89->Column#137, Column#91->Column#138, Column#89->Column#139\t38.7 KB\tN/A\n\u2514\u2500Selection_9\t0.80\t1\troot\t\ttime:2.39s, open:1.06ms, close:11.1\u00b5s, loops:2\tgt(Column#60, ?)\t38.7 KB\tN/A\n  \u2514\u2500HashAgg_16\t1.00\t1\troot\t\ttime:2.39s, open:1.05ms, close:10.6\u00b5s, loops:3\tfuncs:count(Column#141)->Column#60, funcs:sum(Column#142)->Column#61, funcs:sum(Column#143)->Column#62, funcs:sum(Column#144)->Column#63, funcs:sum(Column#145)->Column#64, funcs:sum(Column#146)->Column#65, funcs:sum(Column#147)->Column#66, funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#67, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#68, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#69, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#70, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#71, funcs:min(Column#148)->Column#72, funcs:sum(Column#149)->Column#73, funcs:max(Column#150)->Column#74, funcs:avg(Column#151, Column#152)->Column#75, funcs:min(Column#153)->Column#76, funcs:sum(Column#154)->Column#77, funcs:max(Column#155)->Column#78, funcs:avg(Column#156, Column#157)->Column#79, funcs:min(Column#158)->Column#80, funcs:sum(Column#159)->Column#81, funcs:max(Column#160)->Column#82, funcs:avg(Column#161, Column#162)->Column#83, funcs:min(Column#163)->Column#84, funcs:sum(Column#164)->Column#85, funcs:max(Column#165)->Column#86, funcs:avg(Column#166, Column#167)->Column#87, funcs:min(Column#168)->Column#88, funcs:sum(Column#169)->Column#89, funcs:max(Column#170)->Column#90, funcs:avg(Column#171, Column#172)->Column#91\t152.0 MB\t0 Bytes\n    \u2514\u2500IndexReader_17\t1.00\t167600\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttime:2.11s, open:1.01ms, close:9.89\u00b5s, loops:11, cop_task: {num: 12, max: 2.2s, min: 1.27ms, avg: 246.6ms, p95: 2.2s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 719.9ms, tot_wait: 2.07ms, copr_cache: disabled, build_task_duration: 941.7\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.11s, rpc_info:{Cop:{num_rpc:12, total_time:2.96s}}\tindex:HashAgg_11\t147.1 MB\tN/A\n      \u2514\u2500HashAgg_11\t1.00\t167600\tcop[tikv]\t\ttikv_task:{proc max:1.08s, min:0s, avg: 130.8ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 3.01ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 719.9ms, total_suspend_time: 404.1\u00b5s, total_wait_time: 2.07ms, total_kv_read_wall_time: 30ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#141, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#142, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#143, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#144, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#145, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#146, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#147, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#148, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), ?, ?))->Column#149, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#150, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#151, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#152, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#153, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), ?, ?))->Column#154, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#155, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#156, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#157, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#158, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), ?, ?))->Column#159, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#160, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#161, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#162, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#163, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), ?, ?))->Column#164, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#165, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#166, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#167, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#168, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), ?, ?))->Column#169, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#170, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#171, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#172\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_15\t359561.64\t172346\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:160ms, min:0s, avg: 15.8ms, p80:10ms, p95:160ms, iters:171, tasks:12}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:2.39s, open:1.07ms, close:13.2\u00b5s, loops:2, RU:864.84, Concurrency:OFF",
+              "time:2.39s, open:1.06ms, close:11.1\u00b5s, loops:2",
+              "time:2.39s, open:1.05ms, close:10.6\u00b5s, loops:3",
+              "time:2.11s, open:1.01ms, close:9.89\u00b5s, loops:11, cop_task: {num: 12, max: 2.2s, min: 1.27ms, avg: 246.6ms, p95: 2.2s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 719.9ms, tot_wait: 2.07ms, copr_cache: disabled, build_task_duration: 941.7\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.11s, rpc_info:{Cop:{num_rpc:12, total_time:2.96s}}",
+              "tikv_task:{proc max:1.08s, min:0s, avg: 130.8ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 3.01ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 719.9ms, total_suspend_time: 404.1\u00b5s, total_wait_time: 2.07ms, total_kv_read_wall_time: 30ms}",
+              "tikv_task:{proc max:160ms, min:0s, avg: 15.8ms, p80:10ms, p95:160ms, iters:171, tasks:12}"
+            ]
+          },
+          "variant": "tikv",
+          "sql": "SELECT\n  COUNT(*) AS `metric__b_0011`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `metric__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `present__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `metric__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `present__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `metric__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `present__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `metric__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `present__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `metric__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `present__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `metric__b_0072`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `present__b_0072`,\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0161`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0165`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0169`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0173`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0177`,\n  MIN(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0275`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0275`,\n  MAX(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0276`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0276`,\n  AVG(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0277`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0277`,\n  MIN(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0284`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0284`,\n  MAX(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0285`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0285`,\n  AVG(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0286`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0286`,\n  MIN(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0293`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0293`,\n  MAX(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0294`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0294`,\n  AVG(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0295`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0295`,\n  MIN(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0302`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0302`,\n  MAX(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0303`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0303`,\n  AVG(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0304`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0304`,\n  MIN(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0311`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0311`,\n  MAX(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0312`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0312`,\n  AVG(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0313`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0313`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": true,
+          "elapsed_ms": 2379.165512000327,
+          "engines": "tikv,tiflash,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:2.37s, open:116.4\u00b5s, close:13.2\u00b5s, loops:2, RU:839.43, Concurrency:OFF",
+              "Column#60->Column#92, Column#61->Column#93, Column#61->Column#94, Column#62->Column#95, Column#62->Column#96, Column#63->Column#97, Column#63->Column#98, Column#64->Column#99, Column#64->Column#100, Column#65->Column#101, Column#65->Column#102, Column#66->Column#103, Column#66->Column#104, Column#67->Column#105, Column#68->Column#106, Column#69->Column#107, Column#70->Column#108, Column#71->Column#109, Column#72->Column#110, Column#73->Column#111, Column#74->Column#112, Column#73->Column#113, Column#75->Column#114, Column#73->Column#115, Column#76->Column#116, Column#77->Column#117, Column#78->Column#118, Column#77->Column#119, Column#79->Column#120, Column#77->Column#121, Column#80->Column#122, Column#81->Column#123, Column#82->Column#124, Column#81->Column#125, Column#83->Column#126, Column#81->Column#127, Column#84->Column#128, Column#85->Column#129, Column#86->Column#130, Column#85->Column#131, Column#87->Column#132, Column#85->Column#133, Column#88->Column#134, Column#89->Column#135, Column#90->Column#136, Column#89->Column#137, Column#91->Column#138, Column#89->Column#139",
+              "26.5 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_9",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:2.37s, open:112.9\u00b5s, close:11\u00b5s, loops:2",
+              "gt(Column#60, ?)",
+              "38.7 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_17",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:2.37s, open:110\u00b5s, close:10.5\u00b5s, loops:3",
+              "funcs:count(Column#141)->Column#60, funcs:sum(Column#142)->Column#61, funcs:sum(Column#143)->Column#62, funcs:sum(Column#144)->Column#63, funcs:sum(Column#145)->Column#64, funcs:sum(Column#146)->Column#65, funcs:sum(Column#147)->Column#66, funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#67, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#68, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#69, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#70, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#71, funcs:min(Column#148)->Column#72, funcs:sum(Column#149)->Column#73, funcs:max(Column#150)->Column#74, funcs:avg(Column#151, Column#152)->Column#75, funcs:min(Column#153)->Column#76, funcs:sum(Column#154)->Column#77, funcs:max(Column#155)->Column#78, funcs:avg(Column#156, Column#157)->Column#79, funcs:min(Column#158)->Column#80, funcs:sum(Column#159)->Column#81, funcs:max(Column#160)->Column#82, funcs:avg(Column#161, Column#162)->Column#83, funcs:min(Column#163)->Column#84, funcs:sum(Column#164)->Column#85, funcs:max(Column#165)->Column#86, funcs:avg(Column#166, Column#167)->Column#87, funcs:min(Column#168)->Column#88, funcs:sum(Column#169)->Column#89, funcs:max(Column#170)->Column#90, funcs:avg(Column#171, Column#172)->Column#91",
+              "152.0 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_18",
+              "1.00",
+              "167600",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "time:2.09s, open:99.2\u00b5s, close:9.74\u00b5s, loops:11, cop_task: {num: 12, max: 2.17s, min: 1.01ms, avg: 241.8ms, p95: 2.17s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 643.6ms, tot_wait: 530.3\u00b5s, copr_cache: disabled, build_task_duration: 30.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.09s, rpc_info:{Cop:{num_rpc:12, total_time:2.9s}}",
+              "index:HashAgg_11",
+              "147.1 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_11",
+              "1.00",
+              "167600",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:1.08s, min:0s, avg: 130ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 278.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 643.6ms, total_suspend_time: 392.6\u00b5s, total_wait_time: 530.3\u00b5s, total_kv_read_wall_time: 70ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#141, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#142, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#143, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#144, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#145, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#146, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#147, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#148, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), ?, ?))->Column#149, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#150, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#151, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#152, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#153, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), ?, ?))->Column#154, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#155, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#156, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#157, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#158, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), ?, ?))->Column#159, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#160, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#161, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#162, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#163, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), ?, ?))->Column#164, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#165, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#166, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#167, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#168, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), ?, ?))->Column#169, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#170, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#171, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#172",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_16",
+              "359561.64",
+              "172346",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:100ms, min:0s, avg: 14.2ms, p80:20ms, p95:100ms, iters:171, tasks:12}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:2.37s, open:116.4\u00b5s, close:13.2\u00b5s, loops:2, RU:839.43, Concurrency:OFF\tColumn#60->Column#92, Column#61->Column#93, Column#61->Column#94, Column#62->Column#95, Column#62->Column#96, Column#63->Column#97, Column#63->Column#98, Column#64->Column#99, Column#64->Column#100, Column#65->Column#101, Column#65->Column#102, Column#66->Column#103, Column#66->Column#104, Column#67->Column#105, Column#68->Column#106, Column#69->Column#107, Column#70->Column#108, Column#71->Column#109, Column#72->Column#110, Column#73->Column#111, Column#74->Column#112, Column#73->Column#113, Column#75->Column#114, Column#73->Column#115, Column#76->Column#116, Column#77->Column#117, Column#78->Column#118, Column#77->Column#119, Column#79->Column#120, Column#77->Column#121, Column#80->Column#122, Column#81->Column#123, Column#82->Column#124, Column#81->Column#125, Column#83->Column#126, Column#81->Column#127, Column#84->Column#128, Column#85->Column#129, Column#86->Column#130, Column#85->Column#131, Column#87->Column#132, Column#85->Column#133, Column#88->Column#134, Column#89->Column#135, Column#90->Column#136, Column#89->Column#137, Column#91->Column#138, Column#89->Column#139\t26.5 KB\tN/A\n\u2514\u2500Selection_9\t0.80\t1\troot\t\ttime:2.37s, open:112.9\u00b5s, close:11\u00b5s, loops:2\tgt(Column#60, ?)\t38.7 KB\tN/A\n  \u2514\u2500HashAgg_17\t1.00\t1\troot\t\ttime:2.37s, open:110\u00b5s, close:10.5\u00b5s, loops:3\tfuncs:count(Column#141)->Column#60, funcs:sum(Column#142)->Column#61, funcs:sum(Column#143)->Column#62, funcs:sum(Column#144)->Column#63, funcs:sum(Column#145)->Column#64, funcs:sum(Column#146)->Column#65, funcs:sum(Column#147)->Column#66, funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#67, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#68, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#69, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#70, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#71, funcs:min(Column#148)->Column#72, funcs:sum(Column#149)->Column#73, funcs:max(Column#150)->Column#74, funcs:avg(Column#151, Column#152)->Column#75, funcs:min(Column#153)->Column#76, funcs:sum(Column#154)->Column#77, funcs:max(Column#155)->Column#78, funcs:avg(Column#156, Column#157)->Column#79, funcs:min(Column#158)->Column#80, funcs:sum(Column#159)->Column#81, funcs:max(Column#160)->Column#82, funcs:avg(Column#161, Column#162)->Column#83, funcs:min(Column#163)->Column#84, funcs:sum(Column#164)->Column#85, funcs:max(Column#165)->Column#86, funcs:avg(Column#166, Column#167)->Column#87, funcs:min(Column#168)->Column#88, funcs:sum(Column#169)->Column#89, funcs:max(Column#170)->Column#90, funcs:avg(Column#171, Column#172)->Column#91\t152.0 MB\t0 Bytes\n    \u2514\u2500IndexReader_18\t1.00\t167600\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttime:2.09s, open:99.2\u00b5s, close:9.74\u00b5s, loops:11, cop_task: {num: 12, max: 2.17s, min: 1.01ms, avg: 241.8ms, p95: 2.17s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 643.6ms, tot_wait: 530.3\u00b5s, copr_cache: disabled, build_task_duration: 30.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.09s, rpc_info:{Cop:{num_rpc:12, total_time:2.9s}}\tindex:HashAgg_11\t147.1 MB\tN/A\n      \u2514\u2500HashAgg_11\t1.00\t167600\tcop[tikv]\t\ttikv_task:{proc max:1.08s, min:0s, avg: 130ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 278.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 643.6ms, total_suspend_time: 392.6\u00b5s, total_wait_time: 530.3\u00b5s, total_kv_read_wall_time: 70ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#141, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#142, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#143, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#144, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#145, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#146, funcs:sum(case(eq(intuit_risk.deviceprofile_fact.agent_type, ?), ?, ?))->Column#147, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#148, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), ?, ?))->Column#149, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#150, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#151, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_score)), ne(intuit_risk.deviceprofile_fact.device_score, ?)), cast(intuit_risk.deviceprofile_fact.device_score, decimal(10,2) BINARY)))->Column#152, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#153, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), ?, ?))->Column#154, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#155, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#156, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_fingerprint_score)), ne(intuit_risk.deviceprofile_fact.device_fingerprint_score, ?)), cast(intuit_risk.deviceprofile_fact.device_fingerprint_score, decimal(10,2) BINARY)))->Column#157, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#158, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), ?, ?))->Column#159, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#160, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#161, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.device_worst_score)), ne(intuit_risk.deviceprofile_fact.device_worst_score, ?)), cast(intuit_risk.deviceprofile_fact.device_worst_score, decimal(10,2) BINARY)))->Column#162, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#163, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), ?, ?))->Column#164, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#165, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#166, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.true_ip_score)), ne(intuit_risk.deviceprofile_fact.true_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.true_ip_score, decimal(10,2) BINARY)))->Column#167, funcs:min(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#168, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), ?, ?))->Column#169, funcs:max(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#170, funcs:count(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#171, funcs:sum(case(and(not(isnull(intuit_risk.deviceprofile_fact.input_ip_score)), ne(intuit_risk.deviceprofile_fact.input_ip_score, ?)), cast(intuit_risk.deviceprofile_fact.input_ip_score, decimal(10,2) BINARY)))->Column#172\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_16\t359561.64\t172346\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:100ms, min:0s, avg: 14.2ms, p80:20ms, p95:100ms, iters:171, tasks:12}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:2.37s, open:116.4\u00b5s, close:13.2\u00b5s, loops:2, RU:839.43, Concurrency:OFF",
+              "time:2.37s, open:112.9\u00b5s, close:11\u00b5s, loops:2",
+              "time:2.37s, open:110\u00b5s, close:10.5\u00b5s, loops:3",
+              "time:2.09s, open:99.2\u00b5s, close:9.74\u00b5s, loops:11, cop_task: {num: 12, max: 2.17s, min: 1.01ms, avg: 241.8ms, p95: 2.17s, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 643.6ms, tot_wait: 530.3\u00b5s, copr_cache: disabled, build_task_duration: 30.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 2.09s, rpc_info:{Cop:{num_rpc:12, total_time:2.9s}}",
+              "tikv_task:{proc max:1.08s, min:0s, avg: 130ms, p80:140ms, p95:1.08s, iters:171, tasks:12}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55677, get_snapshot_time: 278.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 643.6ms, total_suspend_time: 392.6\u00b5s, total_wait_time: 530.3\u00b5s, total_kv_read_wall_time: 70ms}",
+              "tikv_task:{proc max:100ms, min:0s, avg: 14.2ms, p80:20ms, p95:100ms, iters:171, tasks:12}"
+            ]
+          },
+          "variant": "cost",
+          "sql": "SELECT\n  COUNT(*) AS `metric__b_0011`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `metric__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `present__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `metric__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `present__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `metric__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `present__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `metric__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `present__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `metric__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `present__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `metric__b_0072`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `present__b_0072`,\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0161`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0165`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0169`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0173`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0177`,\n  MIN(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0275`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0275`,\n  MAX(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0276`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0276`,\n  AVG(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0277`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0277`,\n  MIN(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0284`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0284`,\n  MAX(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0285`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0285`,\n  AVG(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0286`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0286`,\n  MIN(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0293`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0293`,\n  MAX(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0294`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0294`,\n  AVG(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0295`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0295`,\n  MIN(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0302`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0302`,\n  MAX(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0303`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0303`,\n  AVG(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0304`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0304`,\n  MIN(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0311`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0311`,\n  MAX(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0312`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0312`,\n  AVG(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0313`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0313`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": false,
+          "elapsed_ms": 2108.4597039989603,
+          "engines": "tikv,tiflash,tidb",
+          "error": "(1105, \"other error for mpp stream: Code: 0, e.displayText() = DB::Exception: Receiver state: ERROR, error message: Code: 0, e.displayText() = DB::Exception: Memory limit (total) exceeded caused by 'RSS(Resident Set Size) much larger than limit' : process memory size would be 4.78 GiB for (attempt to allocate chunk of 1179954 bytes), limit of memory for data computing : 3.76 GiB. Memory Usage of Storage: non-query: peak=0.00 B, amount=0.00 B; kvstore: peak=0.00 B, amount=0.00 B; query-storage-task: peak=977.21 MiB, amount=17.93 MiB; fetch-pages: peak=1.48 MiB, amount=0.00 B; shared-column-data: peak=977.21 MiB, amount=17.93 MiB., e.what() = DB::Exception,, e.what() = DB::Exception,\")",
+          "variant": "tiflash_hint",
+          "sql": "SELECT /*+ READ_FROM_STORAGE(TIFLASH[d]) */\n  COUNT(*) AS `metric__b_0011`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `metric__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_computer' THEN 1 ELSE 0 END) AS `present__b_0057`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `metric__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'browser_mobile' THEN 1 ELSE 0 END) AS `present__b_0060`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `metric__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'mobile_app' THEN 1 ELSE 0 END) AS `present__b_0063`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `metric__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'tablet' THEN 1 ELSE 0 END) AS `present__b_0066`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `metric__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'desktop' THEN 1 ELSE 0 END) AS `present__b_0069`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `metric__b_0072`,\n  SUM(CASE WHEN d.agent_type = 'unknown' THEN 1 ELSE 0 END) AS `present__b_0072`,\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0161`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0165`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0169`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0173`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0177`,\n  MIN(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0275`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0275`,\n  MAX(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0276`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0276`,\n  AVG(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN CAST(d.device_score AS DECIMAL(10,2)) END) AS `metric__b_0277`,\n  SUM(CASE WHEN d.device_score IS NOT NULL AND d.device_score != '' THEN 1 ELSE 0 END) AS `present__b_0277`,\n  MIN(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0284`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0284`,\n  MAX(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0285`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0285`,\n  AVG(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN CAST(d.device_fingerprint_score AS DECIMAL(10,2)) END) AS `metric__b_0286`,\n  SUM(CASE WHEN d.device_fingerprint_score IS NOT NULL AND d.device_fingerprint_score != '' THEN 1 ELSE 0 END) AS `present__b_0286`,\n  MIN(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0293`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0293`,\n  MAX(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0294`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0294`,\n  AVG(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN CAST(d.device_worst_score AS DECIMAL(10,2)) END) AS `metric__b_0295`,\n  SUM(CASE WHEN d.device_worst_score IS NOT NULL AND d.device_worst_score != '' THEN 1 ELSE 0 END) AS `present__b_0295`,\n  MIN(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0302`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0302`,\n  MAX(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0303`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0303`,\n  AVG(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN CAST(d.true_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0304`,\n  SUM(CASE WHEN d.true_ip_score IS NOT NULL AND d.true_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0304`,\n  MIN(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0311`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0311`,\n  MAX(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0312`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0312`,\n  AVG(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN CAST(d.input_ip_score AS DECIMAL(10,2)) END) AS `metric__b_0313`,\n  SUM(CASE WHEN d.input_ip_score IS NOT NULL AND d.input_ip_score != '' THEN 1 ELSE 0 END) AS `present__b_0313`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        }
+      ]
+    },
+    {
+      "bundle_id": "group_b_bundle_018",
+      "group": "B",
+      "window_days": 180,
+      "base_filter": "d.input_ip = %s",
+      "preagg_applied": false,
+      "event": {
+        "invoice_number": "INV0019249439",
+        "kind": "hot_input_ip",
+        "hot_field": "input_ip",
+        "hot_count": 719377,
+        "reference_time": "2026-04-10T22:19:54.592000"
+      },
+      "params": [
+        "74.179.68.52"
+      ],
+      "variants": [
+        {
+          "ok": true,
+          "elapsed_ms": 1848.8860729994485,
+          "engines": "tikv,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.85s, open:892.8\u00b5s, close:12.7\u00b5s, loops:2, RU:2655.56, Concurrency:OFF",
+              "Column#60->Column#65, Column#61->Column#66, Column#62->Column#67, Column#63->Column#68",
+              "1.86 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_10",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.85s, open:890.5\u00b5s, close:11\u00b5s, loops:2",
+              "gt(Column#64, ?)",
+              "1.86 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_17",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:1.85s, open:887.5\u00b5s, close:10.6\u00b5s, loops:3",
+              "funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.true_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#63, funcs:count(Column#75)->Column#64",
+              "71.3 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_18",
+              "1.00",
+              "711365",
+              "root",
+              "partition:all",
+              "time:1.17s, open:873.3\u00b5s, close:9.93\u00b5s, loops:24, cop_task: {num: 26, max: 1.76s, min: 801.2\u00b5s, avg: 199ms, p95: 1.37s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 853.8ms, tot_wait: 4.2ms, copr_cache: disabled, build_task_duration: 823.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.17s, rpc_info:{Cop:{num_rpc:28, total_time:5.18s}, rpc_errors:{not_leader:2}}, backoff{regionMiss: 2ms}",
+              "index:HashAgg_12",
+              "32.3 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_12",
+              "1.00",
+              "711365",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:360ms, min:0s, avg: 51.2ms, p80:30ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 7.2ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 853.8ms, total_suspend_time: 451.1\u00b5s, total_wait_time: 4.2ms, total_kv_read_wall_time: 90ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.smart_id, intuit_risk.deviceprofile_fact.true_ip, funcs:count(?)->Column#75",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_16",
+              "719376.99",
+              "731012",
+              "cop[tikv]",
+              "table:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)",
+              "tikv_task:{proc max:200ms, min:0s, avg: 28.1ms, p80:10ms, p95:180ms, iters:719, tasks:26}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:1.85s, open:892.8\u00b5s, close:12.7\u00b5s, loops:2, RU:2655.56, Concurrency:OFF\tColumn#60->Column#65, Column#61->Column#66, Column#62->Column#67, Column#63->Column#68\t1.86 KB\tN/A\n\u2514\u2500Selection_10\t0.80\t1\troot\t\ttime:1.85s, open:890.5\u00b5s, close:11\u00b5s, loops:2\tgt(Column#64, ?)\t1.86 KB\tN/A\n  \u2514\u2500HashAgg_17\t1.00\t1\troot\t\ttime:1.85s, open:887.5\u00b5s, close:10.6\u00b5s, loops:3\tfuncs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.true_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#63, funcs:count(Column#75)->Column#64\t71.3 MB\t0 Bytes\n    \u2514\u2500IndexReader_18\t1.00\t711365\troot\tpartition:all\ttime:1.17s, open:873.3\u00b5s, close:9.93\u00b5s, loops:24, cop_task: {num: 26, max: 1.76s, min: 801.2\u00b5s, avg: 199ms, p95: 1.37s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 853.8ms, tot_wait: 4.2ms, copr_cache: disabled, build_task_duration: 823.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.17s, rpc_info:{Cop:{num_rpc:28, total_time:5.18s}, rpc_errors:{not_leader:2}}, backoff{regionMiss: 2ms}\tindex:HashAgg_12\t32.3 MB\tN/A\n      \u2514\u2500HashAgg_12\t1.00\t711365\tcop[tikv]\t\ttikv_task:{proc max:360ms, min:0s, avg: 51.2ms, p80:30ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 7.2ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 853.8ms, total_suspend_time: 451.1\u00b5s, total_wait_time: 4.2ms, total_kv_read_wall_time: 90ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.smart_id, intuit_risk.deviceprofile_fact.true_ip, funcs:count(?)->Column#75\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_16\t719376.99\t731012\tcop[tikv]\ttable:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)\ttikv_task:{proc max:200ms, min:0s, avg: 28.1ms, p80:10ms, p95:180ms, iters:719, tasks:26}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:all",
+              "table:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:1.85s, open:892.8\u00b5s, close:12.7\u00b5s, loops:2, RU:2655.56, Concurrency:OFF",
+              "time:1.85s, open:890.5\u00b5s, close:11\u00b5s, loops:2",
+              "time:1.85s, open:887.5\u00b5s, close:10.6\u00b5s, loops:3",
+              "time:1.17s, open:873.3\u00b5s, close:9.93\u00b5s, loops:24, cop_task: {num: 26, max: 1.76s, min: 801.2\u00b5s, avg: 199ms, p95: 1.37s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 853.8ms, tot_wait: 4.2ms, copr_cache: disabled, build_task_duration: 823.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.17s, rpc_info:{Cop:{num_rpc:28, total_time:5.18s}, rpc_errors:{not_leader:2}}, backoff{regionMiss: 2ms}",
+              "tikv_task:{proc max:360ms, min:0s, avg: 51.2ms, p80:30ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 7.2ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 853.8ms, total_suspend_time: 451.1\u00b5s, total_wait_time: 4.2ms, total_kv_read_wall_time: 90ms}",
+              "tikv_task:{proc max:200ms, min:0s, avg: 28.1ms, p80:10ms, p95:180ms, iters:719, tasks:26}"
+            ]
+          },
+          "variant": "tikv",
+          "sql": "SELECT\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0146`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0150`,\n  COUNT(DISTINCT(d.true_ip)) AS `metric__b_0154`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0158`\nFROM deviceprofile_fact d\nWHERE d.input_ip = %s AND d.jms_timestamp >= '2025-10-12 22:19:54.592000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": true,
+          "elapsed_ms": 1593.8381440009834,
+          "engines": "tikv,tiflash,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.59s, open:141.5\u00b5s, close:13.1\u00b5s, loops:2, RU:2637.44, Concurrency:OFF",
+              "Column#60->Column#65, Column#61->Column#66, Column#62->Column#67, Column#63->Column#68",
+              "1.86 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_10",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.59s, open:138.1\u00b5s, close:10.7\u00b5s, loops:2",
+              "gt(Column#64, ?)",
+              "1.86 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_18",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:1.59s, open:136.3\u00b5s, close:10.3\u00b5s, loops:3",
+              "funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.true_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#63, funcs:count(Column#75)->Column#64",
+              "71.3 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_19",
+              "1.00",
+              "711365",
+              "root",
+              "partition:all",
+              "time:897.2ms, open:127.5\u00b5s, close:9.56\u00b5s, loops:24, cop_task: {num: 26, max: 1.24s, min: 698.8\u00b5s, avg: 169.8ms, p95: 1.24s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 802.3ms, tot_wait: 765.5\u00b5s, copr_cache: disabled, build_task_duration: 63.8\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 896.6ms, rpc_info:{Cop:{num_rpc:26, total_time:4.41s}}",
+              "index:HashAgg_12",
+              "40.4 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_12",
+              "1.00",
+              "711365",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:340ms, min:0s, avg: 48.5ms, p80:20ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 443.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 802.3ms, total_suspend_time: 467\u00b5s, total_wait_time: 765.5\u00b5s, total_kv_read_wall_time: 80ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.smart_id, intuit_risk.deviceprofile_fact.true_ip, funcs:count(?)->Column#75",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_17",
+              "719376.99",
+              "731012",
+              "cop[tikv]",
+              "table:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)",
+              "tikv_task:{proc max:220ms, min:0s, avg: 26.2ms, p80:20ms, p95:150ms, iters:719, tasks:26}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:1.59s, open:141.5\u00b5s, close:13.1\u00b5s, loops:2, RU:2637.44, Concurrency:OFF\tColumn#60->Column#65, Column#61->Column#66, Column#62->Column#67, Column#63->Column#68\t1.86 KB\tN/A\n\u2514\u2500Selection_10\t0.80\t1\troot\t\ttime:1.59s, open:138.1\u00b5s, close:10.7\u00b5s, loops:2\tgt(Column#64, ?)\t1.86 KB\tN/A\n  \u2514\u2500HashAgg_18\t1.00\t1\troot\t\ttime:1.59s, open:136.3\u00b5s, close:10.3\u00b5s, loops:3\tfuncs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.true_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#63, funcs:count(Column#75)->Column#64\t71.3 MB\t0 Bytes\n    \u2514\u2500IndexReader_19\t1.00\t711365\troot\tpartition:all\ttime:897.2ms, open:127.5\u00b5s, close:9.56\u00b5s, loops:24, cop_task: {num: 26, max: 1.24s, min: 698.8\u00b5s, avg: 169.8ms, p95: 1.24s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 802.3ms, tot_wait: 765.5\u00b5s, copr_cache: disabled, build_task_duration: 63.8\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 896.6ms, rpc_info:{Cop:{num_rpc:26, total_time:4.41s}}\tindex:HashAgg_12\t40.4 MB\tN/A\n      \u2514\u2500HashAgg_12\t1.00\t711365\tcop[tikv]\t\ttikv_task:{proc max:340ms, min:0s, avg: 48.5ms, p80:20ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 443.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 802.3ms, total_suspend_time: 467\u00b5s, total_wait_time: 765.5\u00b5s, total_kv_read_wall_time: 80ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.smart_id, intuit_risk.deviceprofile_fact.true_ip, funcs:count(?)->Column#75\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_17\t719376.99\t731012\tcop[tikv]\ttable:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)\ttikv_task:{proc max:220ms, min:0s, avg: 26.2ms, p80:20ms, p95:150ms, iters:719, tasks:26}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:all",
+              "table:d, index:idx_dev_input_runtime_cov(input_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip_score, smart_id, true_ip, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:1.59s, open:141.5\u00b5s, close:13.1\u00b5s, loops:2, RU:2637.44, Concurrency:OFF",
+              "time:1.59s, open:138.1\u00b5s, close:10.7\u00b5s, loops:2",
+              "time:1.59s, open:136.3\u00b5s, close:10.3\u00b5s, loops:3",
+              "time:897.2ms, open:127.5\u00b5s, close:9.56\u00b5s, loops:24, cop_task: {num: 26, max: 1.24s, min: 698.8\u00b5s, avg: 169.8ms, p95: 1.24s, max_proc_keys: 181118, p95_proc_keys: 160530, tot_proc: 802.3ms, tot_wait: 765.5\u00b5s, copr_cache: disabled, build_task_duration: 63.8\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 896.6ms, rpc_info:{Cop:{num_rpc:26, total_time:4.41s}}",
+              "tikv_task:{proc max:340ms, min:0s, avg: 48.5ms, p80:20ms, p95:300ms, iters:719, tasks:26}, scan_detail: {total_process_keys: 731012, total_process_keys_size: 154511815, total_keys: 147332, get_snapshot_time: 443.1\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 802.3ms, total_suspend_time: 467\u00b5s, total_wait_time: 765.5\u00b5s, total_kv_read_wall_time: 80ms}",
+              "tikv_task:{proc max:220ms, min:0s, avg: 26.2ms, p80:20ms, p95:150ms, iters:719, tasks:26}"
+            ]
+          },
+          "variant": "cost",
+          "sql": "SELECT\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0146`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0150`,\n  COUNT(DISTINCT(d.true_ip)) AS `metric__b_0154`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0158`\nFROM deviceprofile_fact d\nWHERE d.input_ip = %s AND d.jms_timestamp >= '2025-10-12 22:19:54.592000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": false,
+          "elapsed_ms": 3298.117087000719,
+          "engines": "tikv,tiflash,tidb",
+          "error": "(1105, \"other error for mpp stream: Code: 0, e.displayText() = DB::Exception: Receiver state: ERROR, error message: Code: 0, e.displayText() = DB::Exception: Memory limit exceeded caused by 'RSS(Resident Set Size) much larger than limit' : process memory size would be 4.76 GiB for (attempt to allocate chunk of 2097152 bytes), limit of memory for data computing : 3.76 GiB. Memory Usage of Storage: non-query: peak=0.00 B, amount=0.00 B; kvstore: peak=0.00 B, amount=0.00 B; query-storage-task: peak=977.21 MiB, amount=276.55 MiB; fetch-pages: peak=1.48 MiB, amount=0.00 B; shared-column-data: peak=977.21 MiB, amount=278.55 MiB.: (while reading from DTFile: s3://s455/data/ks_1_t_112/dmf_2476, column: 20:exchange_receiver_1), e.what() = DB::Exception,, e.what() = DB::Exception,\")",
+          "variant": "tiflash_hint",
+          "sql": "SELECT /*+ READ_FROM_STORAGE(TIFLASH[d]) */\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0146`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0150`,\n  COUNT(DISTINCT(d.true_ip)) AS `metric__b_0154`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0158`\nFROM deviceprofile_fact d\nWHERE d.input_ip = %s AND d.jms_timestamp >= '2025-10-12 22:19:54.592000'\nHAVING COUNT(*) > 0;"
+        }
+      ]
+    },
+    {
+      "bundle_id": "group_b_bundle_020",
+      "group": "B",
+      "window_days": 180,
+      "base_filter": "d.true_ip = %s",
+      "preagg_applied": false,
+      "event": {
+        "invoice_number": "INV0007589128",
+        "kind": "hot_true_ip",
+        "hot_field": "true_ip",
+        "hot_count": 738824,
+        "reference_time": "2026-04-10T23:06:57.563000"
+      },
+      "params": [
+        "72.153.231.69"
+      ],
+      "variants": [
+        {
+          "ok": true,
+          "elapsed_ms": 1776.8811419991835,
+          "engines": "tikv,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.77s, open:676.3\u00b5s, close:13.6\u00b5s, loops:2, RU:2693.88, Concurrency:OFF",
+              "Column#60->Column#66, Column#61->Column#67, Column#62->Column#68, Column#63->Column#69, Column#64->Column#70",
+              "2.23 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_10",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.77s, open:673.8\u00b5s, close:12\u00b5s, loops:2",
+              "gt(Column#65, ?)",
+              "2.23 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_17",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:1.77s, open:667.2\u00b5s, close:11.5\u00b5s, loops:3",
+              "funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#63, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#64, funcs:count(Column#77)->Column#65",
+              "72.2 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_18",
+              "1.00",
+              "710260",
+              "root",
+              "partition:all",
+              "time:1.04s, open:652.4\u00b5s, close:10.9\u00b5s, loops:24, cop_task: {num: 26, max: 1.65s, min: 721.6\u00b5s, avg: 192.4ms, p95: 1.38s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 896ms, tot_wait: 4.87ms, copr_cache: disabled, build_task_duration: 599.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.04s, rpc_info:{Cop:{num_rpc:26, total_time:5s}}",
+              "index:HashAgg_12",
+              "36.9 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_12",
+              "1.00",
+              "710260",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:350ms, min:0s, avg: 52.3ms, p80:40ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 8.62ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 896ms, total_suspend_time: 635.5\u00b5s, total_wait_time: 4.87ms, total_kv_read_wall_time: 120ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#77",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_16",
+              "738823.99",
+              "730266",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:190ms, min:0s, avg: 28.1ms, p80:20ms, p95:170ms, iters:720, tasks:26}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:1.77s, open:676.3\u00b5s, close:13.6\u00b5s, loops:2, RU:2693.88, Concurrency:OFF\tColumn#60->Column#66, Column#61->Column#67, Column#62->Column#68, Column#63->Column#69, Column#64->Column#70\t2.23 KB\tN/A\n\u2514\u2500Selection_10\t0.80\t1\troot\t\ttime:1.77s, open:673.8\u00b5s, close:12\u00b5s, loops:2\tgt(Column#65, ?)\t2.23 KB\tN/A\n  \u2514\u2500HashAgg_17\t1.00\t1\troot\t\ttime:1.77s, open:667.2\u00b5s, close:11.5\u00b5s, loops:3\tfuncs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#63, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#64, funcs:count(Column#77)->Column#65\t72.2 MB\t0 Bytes\n    \u2514\u2500IndexReader_18\t1.00\t710260\troot\tpartition:all\ttime:1.04s, open:652.4\u00b5s, close:10.9\u00b5s, loops:24, cop_task: {num: 26, max: 1.65s, min: 721.6\u00b5s, avg: 192.4ms, p95: 1.38s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 896ms, tot_wait: 4.87ms, copr_cache: disabled, build_task_duration: 599.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.04s, rpc_info:{Cop:{num_rpc:26, total_time:5s}}\tindex:HashAgg_12\t36.9 MB\tN/A\n      \u2514\u2500HashAgg_12\t1.00\t710260\tcop[tikv]\t\ttikv_task:{proc max:350ms, min:0s, avg: 52.3ms, p80:40ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 8.62ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 896ms, total_suspend_time: 635.5\u00b5s, total_wait_time: 4.87ms, total_kv_read_wall_time: 120ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#77\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_16\t738823.99\t730266\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:190ms, min:0s, avg: 28.1ms, p80:20ms, p95:170ms, iters:720, tasks:26}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:all",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:1.77s, open:676.3\u00b5s, close:13.6\u00b5s, loops:2, RU:2693.88, Concurrency:OFF",
+              "time:1.77s, open:673.8\u00b5s, close:12\u00b5s, loops:2",
+              "time:1.77s, open:667.2\u00b5s, close:11.5\u00b5s, loops:3",
+              "time:1.04s, open:652.4\u00b5s, close:10.9\u00b5s, loops:24, cop_task: {num: 26, max: 1.65s, min: 721.6\u00b5s, avg: 192.4ms, p95: 1.38s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 896ms, tot_wait: 4.87ms, copr_cache: disabled, build_task_duration: 599.1\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 1.04s, rpc_info:{Cop:{num_rpc:26, total_time:5s}}",
+              "tikv_task:{proc max:350ms, min:0s, avg: 52.3ms, p80:40ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 8.62ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 896ms, total_suspend_time: 635.5\u00b5s, total_wait_time: 4.87ms, total_kv_read_wall_time: 120ms}",
+              "tikv_task:{proc max:190ms, min:0s, avg: 28.1ms, p80:20ms, p95:170ms, iters:720, tasks:26}"
+            ]
+          },
+          "variant": "tikv",
+          "sql": "SELECT\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0162`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0166`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0170`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0174`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0178`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2025-10-12 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": true,
+          "elapsed_ms": 1532.818920999489,
+          "engines": "tikv,tiflash,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Projection_7",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.53s, open:145.5\u00b5s, close:13.4\u00b5s, loops:2, RU:2697.04, Concurrency:OFF",
+              "Column#60->Column#66, Column#61->Column#67, Column#62->Column#68, Column#63->Column#69, Column#64->Column#70",
+              "2.23 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500Selection_10",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:1.53s, open:142.9\u00b5s, close:11.5\u00b5s, loops:2",
+              "gt(Column#65, ?)",
+              "2.23 KB",
+              "N/A"
+            ],
+            [
+              "  \u2514\u2500HashAgg_18",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:1.53s, open:140.9\u00b5s, close:10.8\u00b5s, loops:3",
+              "funcs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#63, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#64, funcs:count(Column#77)->Column#65",
+              "72.2 MB",
+              "0 Bytes"
+            ],
+            [
+              "    \u2514\u2500IndexReader_19",
+              "1.00",
+              "710260",
+              "root",
+              "partition:all",
+              "time:798.9ms, open:129.3\u00b5s, close:10.2\u00b5s, loops:24, cop_task: {num: 26, max: 1.4s, min: 723.6\u00b5s, avg: 161.2ms, p95: 1.08s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 905.5ms, tot_wait: 730.5\u00b5s, copr_cache: disabled, build_task_duration: 63.7\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 798.3ms, rpc_info:{Cop:{num_rpc:26, total_time:4.19s}}",
+              "index:HashAgg_12",
+              "36.9 MB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500HashAgg_12",
+              "1.00",
+              "710260",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:340ms, min:0s, avg: 53.1ms, p80:30ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 419\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 905.5ms, total_suspend_time: 568.9\u00b5s, total_wait_time: 730.5\u00b5s, total_kv_read_wall_time: 190ms}",
+              "group by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#77",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_17",
+              "738823.99",
+              "730266",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:180ms, min:0s, avg: 32.3ms, p80:20ms, p95:180ms, iters:720, tasks:26}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nProjection_7\t0.80\t1\troot\t\ttime:1.53s, open:145.5\u00b5s, close:13.4\u00b5s, loops:2, RU:2697.04, Concurrency:OFF\tColumn#60->Column#66, Column#61->Column#67, Column#62->Column#68, Column#63->Column#69, Column#64->Column#70\t2.23 KB\tN/A\n\u2514\u2500Selection_10\t0.80\t1\troot\t\ttime:1.53s, open:142.9\u00b5s, close:11.5\u00b5s, loops:2\tgt(Column#65, ?)\t2.23 KB\tN/A\n  \u2514\u2500HashAgg_18\t1.00\t1\troot\t\ttime:1.53s, open:140.9\u00b5s, close:10.8\u00b5s, loops:3\tfuncs:count(distinct intuit_risk.deviceprofile_fact.exact_id)->Column#60, funcs:count(distinct intuit_risk.deviceprofile_fact.smart_id)->Column#61, funcs:count(distinct intuit_risk.deviceprofile_fact.input_ip)->Column#62, funcs:count(distinct intuit_risk.deviceprofile_fact.proxy_ip)->Column#63, funcs:count(distinct intuit_risk.deviceprofile_fact.agent_type)->Column#64, funcs:count(Column#77)->Column#65\t72.2 MB\t0 Bytes\n    \u2514\u2500IndexReader_19\t1.00\t710260\troot\tpartition:all\ttime:798.9ms, open:129.3\u00b5s, close:10.2\u00b5s, loops:24, cop_task: {num: 26, max: 1.4s, min: 723.6\u00b5s, avg: 161.2ms, p95: 1.08s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 905.5ms, tot_wait: 730.5\u00b5s, copr_cache: disabled, build_task_duration: 63.7\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 798.3ms, rpc_info:{Cop:{num_rpc:26, total_time:4.19s}}\tindex:HashAgg_12\t36.9 MB\tN/A\n      \u2514\u2500HashAgg_12\t1.00\t710260\tcop[tikv]\t\ttikv_task:{proc max:340ms, min:0s, avg: 53.1ms, p80:30ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 419\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 905.5ms, total_suspend_time: 568.9\u00b5s, total_wait_time: 730.5\u00b5s, total_kv_read_wall_time: 190ms}\tgroup by:intuit_risk.deviceprofile_fact.agent_type, intuit_risk.deviceprofile_fact.exact_id, intuit_risk.deviceprofile_fact.input_ip, intuit_risk.deviceprofile_fact.proxy_ip, intuit_risk.deviceprofile_fact.smart_id, funcs:count(?)->Column#77\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_17\t738823.99\t730266\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:180ms, min:0s, avg: 32.3ms, p80:20ms, p95:180ms, iters:720, tasks:26}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:all",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)"
+            ],
+            "execution_info_prefix": [
+              "time:1.53s, open:145.5\u00b5s, close:13.4\u00b5s, loops:2, RU:2697.04, Concurrency:OFF",
+              "time:1.53s, open:142.9\u00b5s, close:11.5\u00b5s, loops:2",
+              "time:1.53s, open:140.9\u00b5s, close:10.8\u00b5s, loops:3",
+              "time:798.9ms, open:129.3\u00b5s, close:10.2\u00b5s, loops:24, cop_task: {num: 26, max: 1.4s, min: 723.6\u00b5s, avg: 161.2ms, p95: 1.08s, max_proc_keys: 180732, p95_proc_keys: 160036, tot_proc: 905.5ms, tot_wait: 730.5\u00b5s, copr_cache: disabled, build_task_duration: 63.7\u00b5s, max_distsql_concurrency: 9}, fetch_resp_duration: 798.3ms, rpc_info:{Cop:{num_rpc:26, total_time:4.19s}}",
+              "tikv_task:{proc max:340ms, min:0s, avg: 53.1ms, p80:30ms, p95:310ms, iters:720, tasks:26}, scan_detail: {total_process_keys: 730266, total_process_keys_size: 156162544, total_keys: 146945, get_snapshot_time: 419\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 905.5ms, total_suspend_time: 568.9\u00b5s, total_wait_time: 730.5\u00b5s, total_kv_read_wall_time: 190ms}",
+              "tikv_task:{proc max:180ms, min:0s, avg: 32.3ms, p80:20ms, p95:180ms, iters:720, tasks:26}"
+            ]
+          },
+          "variant": "cost",
+          "sql": "SELECT\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0162`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0166`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0170`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0174`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0178`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2025-10-12 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": false,
+          "elapsed_ms": 1757.7971490009077,
+          "engines": "tikv,tiflash,tidb",
+          "error": "(1105, \"other error for mpp stream: Code: 0, e.displayText() = DB::Exception: Receiver state: ERROR, error message: Code: 0, e.displayText() = DB::Exception: Memory limit (total) exceeded caused by 'RSS(Resident Set Size) much larger than limit' : process memory size would be 4.79 GiB for (attempt to allocate chunk of 1079723 bytes), limit of memory for data computing : 3.76 GiB. Memory Usage of Storage: non-query: peak=0.00 B, amount=0.00 B; kvstore: peak=0.00 B, amount=0.00 B; query-storage-task: peak=977.21 MiB, amount=149.80 MiB; fetch-pages: peak=1.48 MiB, amount=0.00 B; shared-column-data: peak=977.21 MiB, amount=149.80 MiB., e.what() = DB::Exception,, e.what() = DB::Exception,\")",
+          "variant": "tiflash_hint",
+          "sql": "SELECT /*+ READ_FROM_STORAGE(TIFLASH[d]) */\n  COUNT(DISTINCT(d.exact_id)) AS `metric__b_0162`,\n  COUNT(DISTINCT(d.smart_id)) AS `metric__b_0166`,\n  COUNT(DISTINCT(d.input_ip)) AS `metric__b_0170`,\n  COUNT(DISTINCT(d.proxy_ip)) AS `metric__b_0174`,\n  COUNT(DISTINCT(d.agent_type)) AS `metric__b_0178`\nFROM deviceprofile_fact d\nWHERE d.true_ip = %s AND d.jms_timestamp >= '2025-10-12 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        }
+      ]
+    },
+    {
+      "bundle_id": "group_c_bundle_018",
+      "group": "C",
+      "window_days": 30,
+      "base_filter": "d.true_ip = %s",
+      "preagg_applied": false,
+      "event": {
+        "invoice_number": "INV0007589128",
+        "kind": "hot_true_ip",
+        "hot_field": "true_ip",
+        "hot_count": 738824,
+        "reference_time": "2026-04-10T23:06:57.563000"
+      },
+      "params": [
+        "72.153.231.69"
+      ],
+      "variants": [
+        {
+          "ok": true,
+          "elapsed_ms": 354.32771799969487,
+          "engines": "tikv,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Selection_13",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:350.1ms, open:102.2\u00b5s, close:12.1\u00b5s, loops:2, RU:921.97",
+              "gt(Column#106, ?)",
+              "2.52 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500HashAgg_17",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:350.1ms, open:99.4\u00b5s, close:11.6\u00b5s, loops:3",
+              "funcs:count(?)->Column#106, funcs:sum(intuit_risk.pmt_txn_fact.amount)->Column#107, funcs:count(distinct intuit_risk.pmt_txn_fact.merchant_account_number)->Column#108, funcs:count(distinct intuit_risk.pmt_txn_fact.card_holder_number_sha512)->Column#109",
+              "537.4 KB",
+              "0 Bytes"
+            ],
+            [
+              "  \u2514\u2500IndexHashJoin_28",
+              "380878.24",
+              "4558",
+              "root",
+              "",
+              "time:348.1ms, open:87.5\u00b5s, close:11\u00b5s, loops:8, inner:{total:702.6ms, concurrency:5, task:7, construct:85.6ms, fetch:612.3ms, build:14.8ms, join:4.68ms}",
+              "inner join, inner:IndexReader_56, outer key:intuit_risk.deviceprofile_fact.interaction_id, inner key:intuit_risk.pmt_txn_fact.parsed_interaction_id, equal cond:eq(intuit_risk.deviceprofile_fact.interaction_id, intuit_risk.pmt_txn_fact.parsed_interaction_id)",
+              "17.2 MB",
+              "N/A"
+            ],
+            [
+              "    \u251c\u2500IndexReader_53(Build)",
+              "243544.67",
+              "98842",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "time:168.9ms, open:86.3\u00b5s, close:8.18\u00b5s, loops:99, cop_task: {num: 11, max: 166.8ms, min: 730.9\u00b5s, avg: 20.2ms, p95: 166.8ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 173.4ms, tot_wait: 334.1\u00b5s, copr_cache: disabled, build_task_duration: 34.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 165.2ms, rpc_info:{Cop:{num_rpc:11, total_time:221.5ms}}",
+              "index:Selection_52",
+              "4.77 MB",
+              "N/A"
+            ],
+            [
+              "    \u2502 \u2514\u2500Selection_52",
+              "243544.67",
+              "98842",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 184.2\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 173.4ms, total_suspend_time: 126.9\u00b5s, total_wait_time: 334.1\u00b5s, total_kv_read_wall_time: 50ms}",
+              "not(isnull(intuit_risk.deviceprofile_fact.interaction_id))",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "    \u2502   \u2514\u2500IndexRangeScan_51",
+              "359561.64",
+              "172346",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "    \u2514\u2500IndexReader_56(Probe)",
+              "380878.24",
+              "4558",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "total_time:569.5ms, total_open:212ms, total_close:69.9\u00b5s, loops:16, cop_task: {num: 101, max: 75.1ms, min: 621.4\u00b5s, avg: 11ms, p95: 45.2ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 493.5ms, tot_wait: 9.17ms, copr_cache: disabled, build_task_duration: 55.2ms, max_distsql_concurrency: 15}, fetch_resp_duration: 349.6ms, rpc_info:{Cop:{num_rpc:114, total_time:1.12s}, rpc_errors:{not_leader:9, bucket_version_not_match:4}}, backoff{regionMiss: 20ms}",
+              "index:Selection_55",
+              "12.2 KB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500Selection_55",
+              "380878.24",
+              "4558",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:60ms, min:0s, avg: 4.26ms, p80:10ms, p95:10ms, iters:154, tasks:101}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 7.48ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 493.5ms, total_suspend_time: 624.8\u00b5s, total_wait_time: 9.17ms, total_kv_read_wall_time: 210ms}",
+              "not(isnull(intuit_risk.pmt_txn_fact.parsed_interaction_id))",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_54",
+              "516115.01",
+              "4558",
+              "cop[tikv]",
+              "table:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)",
+              "tikv_task:{proc max:60ms, min:0s, avg: 4.26ms, p80:10ms, p95:10ms, iters:154, tasks:101}",
+              "range: decided by [eq(intuit_risk.pmt_txn_fact.parsed_interaction_id, intuit_risk.deviceprofile_fact.interaction_id) ge(intuit_risk.pmt_txn_fact.event_date, ?)], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nSelection_13\t0.80\t1\troot\t\ttime:350.1ms, open:102.2\u00b5s, close:12.1\u00b5s, loops:2, RU:921.97\tgt(Column#106, ?)\t2.52 KB\tN/A\n\u2514\u2500HashAgg_17\t1.00\t1\troot\t\ttime:350.1ms, open:99.4\u00b5s, close:11.6\u00b5s, loops:3\tfuncs:count(?)->Column#106, funcs:sum(intuit_risk.pmt_txn_fact.amount)->Column#107, funcs:count(distinct intuit_risk.pmt_txn_fact.merchant_account_number)->Column#108, funcs:count(distinct intuit_risk.pmt_txn_fact.card_holder_number_sha512)->Column#109\t537.4 KB\t0 Bytes\n  \u2514\u2500IndexHashJoin_28\t380878.24\t4558\troot\t\ttime:348.1ms, open:87.5\u00b5s, close:11\u00b5s, loops:8, inner:{total:702.6ms, concurrency:5, task:7, construct:85.6ms, fetch:612.3ms, build:14.8ms, join:4.68ms}\tinner join, inner:IndexReader_56, outer key:intuit_risk.deviceprofile_fact.interaction_id, inner key:intuit_risk.pmt_txn_fact.parsed_interaction_id, equal cond:eq(intuit_risk.deviceprofile_fact.interaction_id, intuit_risk.pmt_txn_fact.parsed_interaction_id)\t17.2 MB\tN/A\n    \u251c\u2500IndexReader_53(Build)\t243544.67\t98842\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttime:168.9ms, open:86.3\u00b5s, close:8.18\u00b5s, loops:99, cop_task: {num: 11, max: 166.8ms, min: 730.9\u00b5s, avg: 20.2ms, p95: 166.8ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 173.4ms, tot_wait: 334.1\u00b5s, copr_cache: disabled, build_task_duration: 34.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 165.2ms, rpc_info:{Cop:{num_rpc:11, total_time:221.5ms}}\tindex:Selection_52\t4.77 MB\tN/A\n    \u2502 \u2514\u2500Selection_52\t243544.67\t98842\tcop[tikv]\t\ttikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 184.2\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 173.4ms, total_suspend_time: 126.9\u00b5s, total_wait_time: 334.1\u00b5s, total_kv_read_wall_time: 50ms}\tnot(isnull(intuit_risk.deviceprofile_fact.interaction_id))\tN/A\tN/A\n    \u2502   \u2514\u2500IndexRangeScan_51\t359561.64\t172346\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A\n    \u2514\u2500IndexReader_56(Probe)\t380878.24\t4558\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttotal_time:569.5ms, total_open:212ms, total_close:69.9\u00b5s, loops:16, cop_task: {num: 101, max: 75.1ms, min: 621.4\u00b5s, avg: 11ms, p95: 45.2ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 493.5ms, tot_wait: 9.17ms, copr_cache: disabled, build_task_duration: 55.2ms, max_distsql_concurrency: 15}, fetch_resp_duration: 349.6ms, rpc_info:{Cop:{num_rpc:114, total_time:1.12s}, rpc_errors:{not_leader:9, bucket_version_not_match:4}}, backoff{regionMiss: 20ms}\tindex:Selection_55\t12.2 KB\tN/A\n      \u2514\u2500Selection_55\t380878.24\t4558\tcop[tikv]\t\ttikv_task:{proc max:60ms, min:0s, avg: 4.26ms, p80:10ms, p95:10ms, iters:154, tasks:101}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 7.48ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 493.5ms, total_suspend_time: 624.8\u00b5s, total_wait_time: 9.17ms, total_kv_read_wall_time: 210ms}\tnot(isnull(intuit_risk.pmt_txn_fact.parsed_interaction_id))\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_54\t516115.01\t4558\tcop[tikv]\ttable:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)\ttikv_task:{proc max:60ms, min:0s, avg: 4.26ms, p80:10ms, p95:10ms, iters:154, tasks:101}\trange: decided by [eq(intuit_risk.pmt_txn_fact.parsed_interaction_id, intuit_risk.deviceprofile_fact.interaction_id) ge(intuit_risk.pmt_txn_fact.event_date, ?)], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)"
+            ],
+            "execution_info_prefix": [
+              "time:350.1ms, open:102.2\u00b5s, close:12.1\u00b5s, loops:2, RU:921.97",
+              "time:350.1ms, open:99.4\u00b5s, close:11.6\u00b5s, loops:3",
+              "time:348.1ms, open:87.5\u00b5s, close:11\u00b5s, loops:8, inner:{total:702.6ms, concurrency:5, task:7, construct:85.6ms, fetch:612.3ms, build:14.8ms, join:4.68ms}",
+              "time:168.9ms, open:86.3\u00b5s, close:8.18\u00b5s, loops:99, cop_task: {num: 11, max: 166.8ms, min: 730.9\u00b5s, avg: 20.2ms, p95: 166.8ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 173.4ms, tot_wait: 334.1\u00b5s, copr_cache: disabled, build_task_duration: 34.8\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 165.2ms, rpc_info:{Cop:{num_rpc:11, total_time:221.5ms}}",
+              "tikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 184.2\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 173.4ms, total_suspend_time: 126.9\u00b5s, total_wait_time: 334.1\u00b5s, total_kv_read_wall_time: 50ms}",
+              "tikv_task:{proc max:130ms, min:0s, avg: 16.4ms, p80:20ms, p95:130ms, iters:205, tasks:11}",
+              "total_time:569.5ms, total_open:212ms, total_close:69.9\u00b5s, loops:16, cop_task: {num: 101, max: 75.1ms, min: 621.4\u00b5s, avg: 11ms, p95: 45.2ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 493.5ms, tot_wait: 9.17ms, copr_cache: disabled, build_task_duration: 55.2ms, max_distsql_concurrency: 15}, fetch_resp_duration: 349.6ms, rpc_info:{Cop:{num_rpc:114, total_time:1.12s}, rpc_errors:{not_leader:9, bucket_version_not_match:4}}, backoff{regionMiss: 20ms}",
+              "tikv_task:{proc max:60ms, min:0s, avg: 4.26ms, p80:10ms, p95:10ms, iters:154, tasks:101}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 7.48ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 493.5ms, total_suspend_time: 624.8\u00b5s, total_wait_time: 9.17ms, total_kv_read_wall_time: 210ms}"
+            ]
+          },
+          "variant": "tikv",
+          "sql": "SELECT\n  COUNT(*) AS `metric__c_0102`,\n  SUM(p.amount) AS `metric__c_0103`,\n  COUNT(DISTINCT(p.merchant_account_number)) AS `metric__c_0104`,\n  COUNT(DISTINCT(p.card_holder_number_sha512)) AS `metric__c_0105`\nFROM pmt_txn_fact p\nLEFT OUTER JOIN deviceprofile_fact d\n  ON p.parsed_interaction_id = d.interaction_id\nWHERE d.true_ip = %s AND p.event_date >= 1773270417563\n  AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": true,
+          "elapsed_ms": 332.892186999743,
+          "engines": "tikv,tiflash,tidb",
+          "columns": [
+            "id",
+            "estRows",
+            "actRows",
+            "task",
+            "access object",
+            "execution info",
+            "operator info",
+            "memory",
+            "disk"
+          ],
+          "plan_rows": [
+            [
+              "Selection_13",
+              "0.80",
+              "1",
+              "root",
+              "",
+              "time:328.7ms, open:109.2\u00b5s, close:10.4\u00b5s, loops:2, RU:903.96",
+              "gt(Column#106, ?)",
+              "5.57 KB",
+              "N/A"
+            ],
+            [
+              "\u2514\u2500HashAgg_17",
+              "1.00",
+              "1",
+              "root",
+              "",
+              "time:328.7ms, open:106.8\u00b5s, close:9.79\u00b5s, loops:3",
+              "funcs:count(?)->Column#106, funcs:sum(intuit_risk.pmt_txn_fact.amount)->Column#107, funcs:count(distinct intuit_risk.pmt_txn_fact.merchant_account_number)->Column#108, funcs:count(distinct intuit_risk.pmt_txn_fact.card_holder_number_sha512)->Column#109",
+              "540.4 KB",
+              "0 Bytes"
+            ],
+            [
+              "  \u2514\u2500IndexHashJoin_28",
+              "380878.24",
+              "4558",
+              "root",
+              "",
+              "time:326.9ms, open:84.7\u00b5s, close:9.15\u00b5s, loops:8, inner:{total:631.9ms, concurrency:5, task:7, construct:86.7ms, fetch:540.6ms, build:15.1ms, join:4.58ms}",
+              "inner join, inner:IndexReader_69, outer key:intuit_risk.deviceprofile_fact.interaction_id, inner key:intuit_risk.pmt_txn_fact.parsed_interaction_id, equal cond:eq(intuit_risk.deviceprofile_fact.interaction_id, intuit_risk.pmt_txn_fact.parsed_interaction_id)",
+              "15.2 MB",
+              "N/A"
+            ],
+            [
+              "    \u251c\u2500IndexReader_66(Build)",
+              "243544.67",
+              "98842",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "time:166.3ms, open:83.5\u00b5s, close:6.87\u00b5s, loops:99, cop_task: {num: 11, max: 164.1ms, min: 752.7\u00b5s, avg: 19.9ms, p95: 164.1ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 164.4ms, tot_wait: 329.5\u00b5s, copr_cache: disabled, build_task_duration: 33.5\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 162.6ms, rpc_info:{Cop:{num_rpc:11, total_time:218.8ms}}",
+              "index:Selection_65",
+              "4.77 MB",
+              "N/A"
+            ],
+            [
+              "    \u2502 \u2514\u2500Selection_65",
+              "243544.67",
+              "98842",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 172.4\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 164.4ms, total_suspend_time: 125.6\u00b5s, total_wait_time: 329.5\u00b5s, total_kv_read_wall_time: 40ms}",
+              "not(isnull(intuit_risk.deviceprofile_fact.interaction_id))",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "    \u2502   \u2514\u2500IndexRangeScan_64",
+              "359561.64",
+              "172346",
+              "cop[tikv]",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "tikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}",
+              "range:[? ?,? +inf], keep order:false",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "    \u2514\u2500IndexReader_69(Probe)",
+              "380878.24",
+              "4558",
+              "root",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "total_time:496.3ms, total_open:193.4ms, total_close:72.8\u00b5s, loops:16, cop_task: {num: 103, max: 65.6ms, min: 422.4\u00b5s, avg: 9.95ms, p95: 37.9ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 464.1ms, tot_wait: 3.06ms, copr_cache: disabled, build_task_duration: 30.3ms, max_distsql_concurrency: 15}, fetch_resp_duration: 297.3ms, rpc_info:{Cop:{num_rpc:103, total_time:1.02s}}",
+              "index:Selection_68",
+              "12.6 KB",
+              "N/A"
+            ],
+            [
+              "      \u2514\u2500Selection_68",
+              "380878.24",
+              "4558",
+              "cop[tikv]",
+              "",
+              "tikv_task:{proc max:60ms, min:0s, avg: 5.73ms, p80:10ms, p95:10ms, iters:156, tasks:103}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 1.26ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 464.1ms, total_suspend_time: 607.1\u00b5s, total_wait_time: 3.06ms, total_kv_read_wall_time: 390ms}",
+              "not(isnull(intuit_risk.pmt_txn_fact.parsed_interaction_id))",
+              "N/A",
+              "N/A"
+            ],
+            [
+              "        \u2514\u2500IndexRangeScan_67",
+              "516115.01",
+              "4558",
+              "cop[tikv]",
+              "table:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)",
+              "tikv_task:{proc max:60ms, min:0s, avg: 5.73ms, p80:10ms, p95:10ms, iters:156, tasks:103}",
+              "range: decided by [eq(intuit_risk.pmt_txn_fact.parsed_interaction_id, intuit_risk.deviceprofile_fact.interaction_id) ge(intuit_risk.pmt_txn_fact.event_date, ?)], keep order:false",
+              "N/A",
+              "N/A"
+            ]
+          ],
+          "plan_text": "id\testRows\tactRows\ttask\taccess object\texecution info\toperator info\tmemory\tdisk\nSelection_13\t0.80\t1\troot\t\ttime:328.7ms, open:109.2\u00b5s, close:10.4\u00b5s, loops:2, RU:903.96\tgt(Column#106, ?)\t5.57 KB\tN/A\n\u2514\u2500HashAgg_17\t1.00\t1\troot\t\ttime:328.7ms, open:106.8\u00b5s, close:9.79\u00b5s, loops:3\tfuncs:count(?)->Column#106, funcs:sum(intuit_risk.pmt_txn_fact.amount)->Column#107, funcs:count(distinct intuit_risk.pmt_txn_fact.merchant_account_number)->Column#108, funcs:count(distinct intuit_risk.pmt_txn_fact.card_holder_number_sha512)->Column#109\t540.4 KB\t0 Bytes\n  \u2514\u2500IndexHashJoin_28\t380878.24\t4558\troot\t\ttime:326.9ms, open:84.7\u00b5s, close:9.15\u00b5s, loops:8, inner:{total:631.9ms, concurrency:5, task:7, construct:86.7ms, fetch:540.6ms, build:15.1ms, join:4.58ms}\tinner join, inner:IndexReader_69, outer key:intuit_risk.deviceprofile_fact.interaction_id, inner key:intuit_risk.pmt_txn_fact.parsed_interaction_id, equal cond:eq(intuit_risk.deviceprofile_fact.interaction_id, intuit_risk.pmt_txn_fact.parsed_interaction_id)\t15.2 MB\tN/A\n    \u251c\u2500IndexReader_66(Build)\t243544.67\t98842\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttime:166.3ms, open:83.5\u00b5s, close:6.87\u00b5s, loops:99, cop_task: {num: 11, max: 164.1ms, min: 752.7\u00b5s, avg: 19.9ms, p95: 164.1ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 164.4ms, tot_wait: 329.5\u00b5s, copr_cache: disabled, build_task_duration: 33.5\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 162.6ms, rpc_info:{Cop:{num_rpc:11, total_time:218.8ms}}\tindex:Selection_65\t4.77 MB\tN/A\n    \u2502 \u2514\u2500Selection_65\t243544.67\t98842\tcop[tikv]\t\ttikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 172.4\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 164.4ms, total_suspend_time: 125.6\u00b5s, total_wait_time: 329.5\u00b5s, total_kv_read_wall_time: 40ms}\tnot(isnull(intuit_risk.deviceprofile_fact.interaction_id))\tN/A\tN/A\n    \u2502   \u2514\u2500IndexRangeScan_64\t359561.64\t172346\tcop[tikv]\ttable:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)\ttikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}\trange:[? ?,? +inf], keep order:false\tN/A\tN/A\n    \u2514\u2500IndexReader_69(Probe)\t380878.24\t4558\troot\tpartition:p20260401,p20260501,p20260601,pmax\ttotal_time:496.3ms, total_open:193.4ms, total_close:72.8\u00b5s, loops:16, cop_task: {num: 103, max: 65.6ms, min: 422.4\u00b5s, avg: 9.95ms, p95: 37.9ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 464.1ms, tot_wait: 3.06ms, copr_cache: disabled, build_task_duration: 30.3ms, max_distsql_concurrency: 15}, fetch_resp_duration: 297.3ms, rpc_info:{Cop:{num_rpc:103, total_time:1.02s}}\tindex:Selection_68\t12.6 KB\tN/A\n      \u2514\u2500Selection_68\t380878.24\t4558\tcop[tikv]\t\ttikv_task:{proc max:60ms, min:0s, avg: 5.73ms, p80:10ms, p95:10ms, iters:156, tasks:103}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 1.26ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 464.1ms, total_suspend_time: 607.1\u00b5s, total_wait_time: 3.06ms, total_kv_read_wall_time: 390ms}\tnot(isnull(intuit_risk.pmt_txn_fact.parsed_interaction_id))\tN/A\tN/A\n        \u2514\u2500IndexRangeScan_67\t516115.01\t4558\tcop[tikv]\ttable:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)\ttikv_task:{proc max:60ms, min:0s, avg: 5.73ms, p80:10ms, p95:10ms, iters:156, tasks:103}\trange: decided by [eq(intuit_risk.pmt_txn_fact.parsed_interaction_id, intuit_risk.deviceprofile_fact.interaction_id) ge(intuit_risk.pmt_txn_fact.event_date, ?)], keep order:false\tN/A\tN/A",
+          "plan_summary": {
+            "tasks": [
+              "cop[tikv]",
+              "root"
+            ],
+            "access_objects": [
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:d, index:idx_dev_true_runtime_cov(true_ip, jms_timestamp, interaction_id, agent_type, device_fingerprint_score, device_score, device_worst_score, exact_id, input_ip, input_ip_score, proxy_ip, smart_id, true_ip_score)",
+              "partition:p20260401,p20260501,p20260601,pmax",
+              "table:p, index:idx_pmt_join_runtime_cov(parsed_interaction_id, event_date, amount, merchant_account_number, card_holder_number_sha512, card_type, entry_method, mt_gateway, check_bank_routing_number, transaction_type)"
+            ],
+            "execution_info_prefix": [
+              "time:328.7ms, open:109.2\u00b5s, close:10.4\u00b5s, loops:2, RU:903.96",
+              "time:328.7ms, open:106.8\u00b5s, close:9.79\u00b5s, loops:3",
+              "time:326.9ms, open:84.7\u00b5s, close:9.15\u00b5s, loops:8, inner:{total:631.9ms, concurrency:5, task:7, construct:86.7ms, fetch:540.6ms, build:15.1ms, join:4.58ms}",
+              "time:166.3ms, open:83.5\u00b5s, close:6.87\u00b5s, loops:99, cop_task: {num: 11, max: 164.1ms, min: 752.7\u00b5s, avg: 19.9ms, p95: 164.1ms, max_proc_keys: 116680, p95_proc_keys: 116680, tot_proc: 164.4ms, tot_wait: 329.5\u00b5s, copr_cache: disabled, build_task_duration: 33.5\u00b5s, max_distsql_concurrency: 4}, fetch_resp_duration: 162.6ms, rpc_info:{Cop:{num_rpc:11, total_time:218.8ms}}",
+              "tikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}, scan_detail: {total_process_keys: 172346, total_process_keys_size: 40578683, total_keys: 55676, get_snapshot_time: 172.4\u00b5s, rocksdb: {block: {}}}, time_detail: {total_process_time: 164.4ms, total_suspend_time: 125.6\u00b5s, total_wait_time: 329.5\u00b5s, total_kv_read_wall_time: 40ms}",
+              "tikv_task:{proc max:120ms, min:0s, avg: 14.5ms, p80:10ms, p95:120ms, iters:205, tasks:11}",
+              "total_time:496.3ms, total_open:193.4ms, total_close:72.8\u00b5s, loops:16, cop_task: {num: 103, max: 65.6ms, min: 422.4\u00b5s, avg: 9.95ms, p95: 37.9ms, max_proc_keys: 224, p95_proc_keys: 224, tot_proc: 464.1ms, tot_wait: 3.06ms, copr_cache: disabled, build_task_duration: 30.3ms, max_distsql_concurrency: 15}, fetch_resp_duration: 297.3ms, rpc_info:{Cop:{num_rpc:103, total_time:1.02s}}",
+              "tikv_task:{proc max:60ms, min:0s, avg: 5.73ms, p80:10ms, p95:10ms, iters:156, tasks:103}, scan_detail: {total_process_keys: 4558, total_process_keys_size: 1382860, total_keys: 49818, get_snapshot_time: 1.26ms, rocksdb: {block: {}}}, time_detail: {total_process_time: 464.1ms, total_suspend_time: 607.1\u00b5s, total_wait_time: 3.06ms, total_kv_read_wall_time: 390ms}"
+            ]
+          },
+          "variant": "cost",
+          "sql": "SELECT\n  COUNT(*) AS `metric__c_0102`,\n  SUM(p.amount) AS `metric__c_0103`,\n  COUNT(DISTINCT(p.merchant_account_number)) AS `metric__c_0104`,\n  COUNT(DISTINCT(p.card_holder_number_sha512)) AS `metric__c_0105`\nFROM pmt_txn_fact p\nLEFT OUTER JOIN deviceprofile_fact d\n  ON p.parsed_interaction_id = d.interaction_id\nWHERE d.true_ip = %s AND p.event_date >= 1773270417563\n  AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        },
+        {
+          "ok": false,
+          "elapsed_ms": 56.792875000610366,
+          "engines": "tikv,tiflash,tidb",
+          "error": "(1105, \"other error for mpp stream: Code: 0, e.displayText() = DB::Exception: Memory limit (total) exceeded caused by 'RSS(Resident Set Size) much larger than limit' : process memory size would be 4.80 GiB for (attempt to allocate chunk of 1307304 bytes), limit of memory for data computing : 3.76 GiB. Memory Usage of Storage: non-query: peak=0.00 B, amount=0.00 B; kvstore: peak=0.00 B, amount=0.00 B; query-storage-task: peak=977.21 MiB, amount=5.52 MiB; fetch-pages: peak=1.48 MiB, amount=0.00 B; shared-column-data: peak=977.21 MiB, amount=5.52 MiB., e.what() = DB::Exception,\")",
+          "variant": "tiflash_hint",
+          "sql": "SELECT /*+ READ_FROM_STORAGE(TIFLASH[p,d]) */\n  COUNT(*) AS `metric__c_0102`,\n  SUM(p.amount) AS `metric__c_0103`,\n  COUNT(DISTINCT(p.merchant_account_number)) AS `metric__c_0104`,\n  COUNT(DISTINCT(p.card_holder_number_sha512)) AS `metric__c_0105`\nFROM pmt_txn_fact p\nLEFT OUTER JOIN deviceprofile_fact d\n  ON p.parsed_interaction_id = d.interaction_id\nWHERE d.true_ip = %s AND p.event_date >= 1773270417563\n  AND d.jms_timestamp >= '2026-03-11 23:06:57.563000'\nHAVING COUNT(*) > 0;"
+        }
+      ]
+    }
+  ]
+}

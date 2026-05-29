@@ -89,6 +89,8 @@ def completion_summary(rows: list[dict[str, Any]], field: str) -> dict[str, floa
 
 
 def event_total_bundles(row: dict[str, Any]) -> int:
+    if "bundle_total_count" in row:
+        return int(row.get("bundle_total_count") or BUNDLES_PER_EVENT)
     bundles = row.get("bundle_results", [])
     if bundles:
         return len(bundles)
@@ -360,9 +362,19 @@ def main() -> None:
             f"- Bundle fan-out target: {fanout.get('target_bundle_qps', 0):,.0f} bundle SQL/sec "
             f"({fanout.get('bundles_per_event', 65)} independent bundle queries per event)"
         )
+    if mixed.get("excluded_bundles"):
+        lines.append(
+            f"- Critical-path excluded bundles: {', '.join(mixed.get('excluded_bundles', []))} "
+            f"({mixed.get('executed_bundle_count', '?')} executed / {mixed.get('logical_bundle_count', 65)} logical)"
+        )
     lines.append(f"- Hot-key mix target: {mixed['hot_event_pct']:.1%}")
     lines.append(f"- Scripted warmup: {mixed['warmup']} seconds; skip initial preflight: {mixed.get('skip_initial_warmup')}")
     lines.append(f"- Read max_execution_time: {mixed.get('read_max_execution_time_ms', 0)} ms")
+    if mixed.get("score_ready_bundles"):
+        lines.append(
+            f"- Score-ready return: {mixed.get('score_ready_bundles')}/65 bundles, "
+            f"timeout {mixed.get('score_ready_timeout_ms', 0)} ms"
+        )
     lines.append(f"- Pre-agg mode: {mixed.get('preagg_mode', 'hybrid')}")
     lines.append(f"- Reads completed: {len(reads)} events ({len(normal)} normal, {len(hot)} hot-key)")
     lines.append(f"- Writes completed: {len(writes)} insert attempts")

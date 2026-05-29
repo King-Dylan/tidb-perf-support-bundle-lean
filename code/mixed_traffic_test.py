@@ -24,7 +24,7 @@ import statistics
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import datetime
 from pathlib import Path
 from queue import Queue
@@ -134,6 +134,14 @@ def configure_read_session(cur, max_execution_time_ms: int | None = None) -> Non
         cur.execute(f"SET SESSION tidb_hashagg_partial_concurrency = {int(os.environ['INTUIT_HASHAGG_PARTIAL_CONCURRENCY'])}")
 
 
+def open_configured_connection(cfg: dict[str, Any], max_execution_time_ms: int | None = None):
+    conn = pymysql.connect(**cfg)
+    conn.autocommit(True)
+    with conn.cursor() as cur:
+        configure_read_session(cur, max_execution_time_ms=max_execution_time_ms)
+    return conn
+
+
 def make_pool(size: int, max_execution_time_ms: int | None = None) -> Queue:
     cfg = dict(get_db_config(save_msg="mixed traffic test"))
     cfg.setdefault("connect_timeout", int(os.getenv("INTUIT_DB_CONNECT_TIMEOUT_SEC", "10")))
@@ -142,13 +150,40 @@ def make_pool(size: int, max_execution_time_ms: int | None = None) -> Queue:
     cfg.setdefault("read_timeout", socket_timeout)
     cfg.setdefault("write_timeout", socket_timeout)
     pool: Queue = Queue(maxsize=size)
+    pool.db_cfg = cfg  # type: ignore[attr-defined]
+    pool.max_execution_time_ms = max_execution_time_ms  # type: ignore[attr-defined]
+    pool.replaced_connections = 0  # type: ignore[attr-defined]
+    pool.replace_lock = threading.Lock()  # type: ignore[attr-defined]
     for _ in range(size):
-        conn = pymysql.connect(**cfg)
-        conn.autocommit(True)
-        with conn.cursor() as cur:
-            configure_read_session(cur, max_execution_time_ms=max_execution_time_ms)
-        pool.put(conn)
+        pool.put(open_configured_connection(cfg, max_execution_time_ms=max_execution_time_ms))
     return pool
+
+
+def connection_needs_replacement(exc: Exception, conn) -> bool:
+    text = str(exc).lower()
+    markers = (
+        "timed out",
+        "lost connection",
+        "server has gone away",
+        "connection reset",
+        "broken pipe",
+        "packet sequence",
+    )
+    return not getattr(conn, "open", False) or any(marker in text for marker in markers)
+
+
+def replace_pool_connection(pool: Queue, old_conn) -> Any:
+    try:
+        old_conn.close()
+    except Exception:
+        pass
+    conn = open_configured_connection(
+        pool.db_cfg,  # type: ignore[attr-defined]
+        max_execution_time_ms=pool.max_execution_time_ms,  # type: ignore[attr-defined]
+    )
+    with pool.replace_lock:  # type: ignore[attr-defined]
+        pool.replaced_connections += 1  # type: ignore[attr-defined]
+    return conn
 
 
 def make_event(row: tuple[Any, ...], kind: str, hot_field: str | None = None, hot_count: int | None = None) -> dict[str, Any]:
@@ -535,6 +570,9 @@ def run_one_event_detailed(
     event: dict[str, Any],
     bundle_executor: ThreadPoolExecutor | None = None,
     store_bundle_results: bool = True,
+    score_ready_bundles: int = 0,
+    score_ready_timeout_ms: int = 0,
+    logical_bundle_count: int | None = None,
 ) -> dict[str, Any]:
     bindings = event["bindings"]
     reference_time = datetime.fromisoformat(event["reference_time"])
@@ -549,6 +587,7 @@ def run_one_event_detailed(
         conn = pool.get()
         conn_wait_ms = (time.perf_counter() - conn_wait_started) * 1000.0
         started = time.perf_counter()
+        replace_conn = False
         try:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
@@ -566,6 +605,7 @@ def run_one_event_detailed(
                 "conn_wait_ms": conn_wait_ms,
             }
         except Exception as exc:
+            replace_conn = connection_needs_replacement(exc, conn)
             completed_ms = (time.perf_counter() - event_start) * 1000.0
             return {
                 "bundle_id": bundle.bundle_id,
@@ -580,17 +620,56 @@ def run_one_event_detailed(
                 "error": str(exc)[:300],
             }
         finally:
+            if replace_conn:
+                conn = replace_pool_connection(pool, conn)
             pool.put(conn)
+
+    def collect_results(futures) -> tuple[list[dict[str, Any]], str, int, int]:
+        if not score_ready_bundles:
+            return [future.result() for future in futures], "full_wait", 0, 0
+
+        pending = set(futures)
+        bundle_results: list[dict[str, Any]] = []
+        successful_count = 0
+        reason = "all_completed"
+        deadline = event_start + (score_ready_timeout_ms / 1000.0) if score_ready_timeout_ms else None
+        while pending:
+            if deadline is None:
+                timeout = None
+            else:
+                timeout = deadline - time.perf_counter()
+                if timeout <= 0:
+                    reason = "score_ready_timeout"
+                    break
+            done, pending = wait(pending, timeout=timeout, return_when=FIRST_COMPLETED)
+            if not done:
+                reason = "score_ready_timeout"
+                break
+            for future in done:
+                result = future.result()
+                bundle_results.append(result)
+                if result["ms"] >= 0:
+                    successful_count += 1
+            if successful_count >= score_ready_bundles:
+                reason = "score_ready"
+                break
+
+        cancelled = sum(1 for future in pending if future.cancel())
+        return bundle_results, reason, len(pending), cancelled
 
     if bundle_executor is None:
         with ThreadPoolExecutor(max_workers=len(all_bundles)) as ex:
-            bundle_results = list(ex.map(lambda item: run_bundle(*item), all_bundles))
+            futures = [
+                ex.submit(run_bundle, bundle, group, time.perf_counter())
+                for bundle, group in all_bundles
+            ]
+            bundle_results, event_return_reason, unfinished_count, cancelled_count = collect_results(futures)
     else:
         futures = [
             bundle_executor.submit(run_bundle, bundle, group, time.perf_counter())
             for bundle, group in all_bundles
         ]
-        bundle_results = [future.result() for future in futures]
+        bundle_results, event_return_reason, unfinished_count, cancelled_count = collect_results(futures)
     event_ms = (time.perf_counter() - event_start) * 1000.0
     successful = [b for b in bundle_results if b["ms"] >= 0]
     bundle_ms = [float(b["ms"]) for b in successful]
@@ -598,7 +677,8 @@ def run_one_event_detailed(
     conn_wait_ms = [float(b.get("conn_wait_ms", 0.0)) for b in bundle_results]
     completion_ms = sorted(float(b.get("completed_ms", 0.0)) for b in successful)
     bundle_60th_completion_ms = completion_ms[59] if len(completion_ms) >= 60 else -1.0
-    bundle_65th_completion_ms = completion_ms[len(all_bundles) - 1] if len(completion_ms) >= len(all_bundles) else -1.0
+    total_bundle_count = logical_bundle_count or len(all_bundles)
+    bundle_65th_completion_ms = completion_ms[total_bundle_count - 1] if len(completion_ms) >= total_bundle_count else -1.0
     slowest = sorted(successful, key=lambda b: b["ms"], reverse=True)[:8]
     cutoff_counts = {
         str(cutoff): sum(1 for b in successful if float(b["ms"]) <= cutoff)
@@ -612,6 +692,10 @@ def run_one_event_detailed(
         "ms": event_ms,
         "ts": time.time(),
         "error_count": len(bundle_results) - len(successful),
+        "bundle_total_count": total_bundle_count,
+        "bundle_unfinished_count": unfinished_count,
+        "bundle_cancelled_count": cancelled_count,
+        "event_return_reason": event_return_reason,
         "bundle_avg_ms": statistics.mean(bundle_ms) if bundle_ms else 0.0,
         "bundle_max_ms": max(bundle_ms) if bundle_ms else 0.0,
         "bundle_task_queue_avg_ms": statistics.mean(task_queue_ms) if task_queue_ms else 0.0,
@@ -657,6 +741,9 @@ def reader_thread(
     event_semaphore: threading.Semaphore,
     unique_events_required: bool,
     store_bundle_results: bool,
+    score_ready_bundles: int,
+    score_ready_timeout_ms: int,
+    logical_bundle_count: int,
     reader_stats: dict[str, Any],
 ):
     interval = 1.0 / target_rate
@@ -699,6 +786,9 @@ def reader_thread(
                             ev,
                             bundle_executor=bundle_executor,
                             store_bundle_results=store_bundle_results,
+                            score_ready_bundles=score_ready_bundles,
+                            score_ready_timeout_ms=score_ready_timeout_ms,
+                            logical_bundle_count=logical_bundle_count,
                         )
                     )
                 finally:
@@ -899,10 +989,13 @@ def main() -> None:
     ap.add_argument("--unique-events-required", action="store_true", help="Do not rotate/reuse sampled events. Fail early if the sample is too small.")
     ap.add_argument("--summary-only", action="store_true", help="Omit per-bundle details from each event to keep high-rate result JSONs small.")
     ap.add_argument("--read-max-execution-time-ms", type=int, default=0, help="Set TiDB max_execution_time on read connections. 0 means unlimited.")
+    ap.add_argument("--score-ready-bundles", type=int, default=0, help="Return an event once this many bundle queries have succeeded. 0 waits for all bundles.")
+    ap.add_argument("--score-ready-timeout-ms", type=int, default=0, help="Stop waiting for score-ready bundles after this wall-clock timeout. 0 means no score-ready timeout.")
     ap.add_argument("--no-writes", action="store_true")
     ap.add_argument("--preagg-mode", choices=["hybrid", "runtime-only"], default="hybrid", help="hybrid uses --preagg-bundle paths; runtime-only ignores pre-agg bundles.")
     ap.add_argument("--preagg-bundle", action="append", default=[], help="Use daily pre-aggregation for this bundle id. Repeatable.")
     ap.add_argument("--preagg-layout", choices=["bundle", "prod180"], default=os.getenv("PREAGG_LAYOUT", "prod180"), help="Pre-agg physical layout to use for selected bundles.")
+    ap.add_argument("--exclude-bundle", action="append", default=[], help="Do not execute this bundle id in the critical-path run. Repeatable fallback experiment.")
     ap.add_argument("--skip-initial-warmup", action="store_true", help="Do not run the one normal + one hot preflight event before timing.")
     ap.add_argument("--reuse-events-json", default=None, help="Reuse sampled_normal_events and sampled_hot_events from a prior mixed_traffic JSON run.")
     args = ap.parse_args()
@@ -950,6 +1043,16 @@ def main() -> None:
     b_bundles = cluster_group_b_templates()
     c_bundles = cluster_group_c_templates()
     all_bundles = [(b, "A") for b in a_bundles] + [(b, "B") for b in b_bundles] + [(b, "C") for b in c_bundles]
+    logical_bundle_count = len(all_bundles)
+    excluded_bundles = set(args.exclude_bundle)
+    if excluded_bundles:
+        known_bundle_ids = {bundle.bundle_id for bundle, _ in all_bundles}
+        unknown = sorted(excluded_bundles - known_bundle_ids)
+        if unknown:
+            raise ValueError(f"Unknown --exclude-bundle ids: {', '.join(unknown)}")
+        all_bundles = [(bundle, group) for bundle, group in all_bundles if bundle.bundle_id not in excluded_bundles]
+    if args.score_ready_bundles and not (1 <= args.score_ready_bundles <= len(all_bundles)):
+        raise ValueError(f"--score-ready-bundles must be between 1 and {len(all_bundles)} executed bundles")
     # Production-style baseline: let TiDB choose TiKV vs TiFlash by cost.
     # Older fixed-event demo runs forced TiFlash for a couple of Group A routing
     # bundles, but rotating-key traffic should not inherit one-off hints.
@@ -960,9 +1063,16 @@ def main() -> None:
             preagg_bundles = set(PROD180_PREAGG_BUNDLES)
     else:
         preagg_bundles = set()
-    print(f"Bundles per event: {len(all_bundles)}")
+    print(f"Bundles per event: {len(all_bundles)} executed ({logical_bundle_count} logical)")
+    if excluded_bundles:
+        print(f"Excluded critical-path bundles: {', '.join(sorted(excluded_bundles))}")
     print(f"Pre-agg mode: {args.preagg_mode}")
     print(f"Pre-agg layout: {args.preagg_layout}")
+    if args.score_ready_bundles:
+        print(
+            f"Score-ready event return: {args.score_ready_bundles}/{len(all_bundles)} "
+            f"bundles, timeout={args.score_ready_timeout_ms or 'none'}ms"
+        )
     if preagg_bundles:
         print(f"Pre-agg bundles: {', '.join(sorted(preagg_bundles))}")
 
@@ -1027,6 +1137,9 @@ def main() -> None:
             event_semaphore,
             args.unique_events_required,
             not args.summary_only,
+            args.score_ready_bundles,
+            args.score_ready_timeout_ms,
+            logical_bundle_count,
             reader_stats,
         ),
     )
@@ -1127,6 +1240,8 @@ def main() -> None:
         print(f"Unique-event hot/normal fallback selections: {reader_stats['fallback_events']}")
     if reader_stats.get("backpressure_skips"):
         print(f"Client backpressure skips: {reader_stats['backpressure_skips']}")
+    if getattr(read_pool, "replaced_connections", 0):
+        print(f"Read pool connection replacements: {read_pool.replaced_connections}")
 
     for kind in sorted({r["kind"] for r in steady_reads}):
         print_summary(f"{kind} steady", [r for r in steady_reads if r["kind"] == kind])
@@ -1168,9 +1283,14 @@ def main() -> None:
         "max_pending_events": max_pending_events,
         "reader_stats": reader_stats,
         "read_max_execution_time_ms": args.read_max_execution_time_ms,
+        "score_ready_bundles": args.score_ready_bundles,
+        "score_ready_timeout_ms": args.score_ready_timeout_ms,
         "preagg_mode": args.preagg_mode,
         "preagg_layout": args.preagg_layout,
         "preagg_bundles": sorted(preagg_bundles),
+        "excluded_bundles": sorted(excluded_bundles),
+        "logical_bundle_count": logical_bundle_count,
+        "executed_bundle_count": len(all_bundles),
         "fanout_capacity": fanout_capacity,
         "skip_initial_warmup": args.skip_initial_warmup,
         "query_shape_notes": {
@@ -1218,6 +1338,7 @@ def main() -> None:
             ),
         },
         "bundle_coverage": coverage,
+        "read_pool_connection_replacements": getattr(read_pool, "replaced_connections", 0),
     }
     out = ROOT / "results" / f"mixed_traffic_{int(test_start)}.json"
     out.write_text(json.dumps(result, indent=2, default=str), encoding="utf-8")
