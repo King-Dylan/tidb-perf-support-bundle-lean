@@ -88,6 +88,11 @@ fi
 
 echo "Starting mixed traffic benchmark"
 echo "label=$LABEL duration=$DURATION read_rate=$READ_RATE hot_event_pct=$HOT_EVENT_PCT preagg_mode=$PREAGG_MODE preagg_layout=$PREAGG_LAYOUT read_max_execution_time_ms=$READ_MAX_EXECUTION_TIME_MS log=$LOG"
+python3 - "$READ_RATE" <<'PY'
+import sys
+read_rate = float(sys.argv[1])
+print(f"fanout_target={read_rate:.1f} events/sec * 65 bundles/event = {read_rate * 65:.1f} bundle SQL/sec")
+PY
 echo "normal_events=$NORMAL_EVENTS hot_events_per_field=$HOT_EVENTS_PER_FIELD pool_size=$POOL_SIZE write_pool_size=$WRITE_POOL_SIZE event_workers=$EVENT_WORKERS bundle_workers=$BUNDLE_WORKERS max_pending_events=$MAX_PENDING_EVENTS unique_events_required=$UNIQUE_EVENTS_REQUIRED summary_only=$SUMMARY_ONLY"
 echo "session: tidb_isolation_read_engines=$TIDB_ISOLATION_READ_ENGINES tidb_opt_force_inline_cte=$INTUIT_FORCE_INLINE_CTE"
 

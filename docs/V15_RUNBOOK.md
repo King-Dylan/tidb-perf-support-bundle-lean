@@ -16,6 +16,9 @@ v15 is the full-scale Premium/BYOC validation of the winning v12 design.
   - `group_c_180d_daily_distinct`
 - Runtime path: all 1d/7d/30d/90d bundles plus non-selected windows.
 - Pre-agg path: all 180d bundles only.
+- Event execution model: the 65 bundle SQLs for one event are independent,
+  share the same event bindings/reference time, and fan out in parallel. The
+  app waits only at the final fan-in to score the event.
 - Optimized query path:
   - runtime SQL removes redundant `GROUP BY` when equality predicates make the group key constant
   - 180d distinct and mixed rollup+distinct SQL shares one raw-boundary CTE per bundle
@@ -98,6 +101,10 @@ Only continue to stress levels if 100 eps looks healthy:
 
 - `100 eps = 6,500 bundle executions/sec`.
 - `1000 eps = 65,000 bundle executions/sec`.
+- Capacity sanity check: bundle slots needed at a deadline are approximately
+  `events/sec * 65 * deadline_seconds`; for 1000 eps this is 22,750 slots at
+  350ms or 32,500 slots at 500ms if every bundle occupies a slot until the
+  deadline. Faster average bundle time reduces the needed slots.
 - Runs at `>=100 eps` default to summary-only output to avoid multi-GB result
   JSON files. They still print Henry/Andrew coverage and the bundle drop-off
   histogram.

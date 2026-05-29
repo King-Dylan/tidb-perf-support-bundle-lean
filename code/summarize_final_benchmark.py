@@ -316,6 +316,12 @@ def main() -> None:
     lines.append("")
     lines.append(f"- Duration: {mixed['duration']} seconds")
     lines.append(f"- Read rate: {mixed['read_rate']} events/sec")
+    fanout = mixed.get("fanout_capacity") or {}
+    if fanout:
+        lines.append(
+            f"- Bundle fan-out target: {fanout.get('target_bundle_qps', 0):,.0f} bundle SQL/sec "
+            f"({fanout.get('bundles_per_event', 65)} independent bundle queries per event)"
+        )
     lines.append(f"- Hot-key mix target: {mixed['hot_event_pct']:.1%}")
     lines.append(f"- Scripted warmup: {mixed['warmup']} seconds; skip initial preflight: {mixed.get('skip_initial_warmup')}")
     lines.append(f"- Read max_execution_time: {mixed.get('read_max_execution_time_ms', 0)} ms")
@@ -324,11 +330,38 @@ def main() -> None:
     lines.append(f"- Writes completed: {len(writes)} insert attempts")
     notes = mixed.get("query_shape_notes", {})
     if notes:
+        if notes.get("event_bundle_dependency"):
+            lines.append(f"- Event bundle dependency model: {notes.get('event_bundle_dependency')}")
         lines.append(f"- Group C join key: {notes.get('group_c_join_key')}")
         lines.append(f"- Group C timestamp filter: {notes.get('group_c_timestamp_filter')}")
     if reads and not reads[0].get("bundle_results"):
         lines.append("- WARNING: this JSON does not include full `bundle_results`; slow-bundle and 60/65 timeout stats are incomplete.")
     lines.append("")
+
+    if fanout:
+        lines.append("## Fan-Out Capacity")
+        lines.append("")
+        lines.append(
+            "The scoring app waits for the combined feature vector, so event latency is the fan-in wall-clock "
+            "of the 65 independent bundle queries, not the sum of their latencies."
+        )
+        lines.append("")
+        write_table(
+            lines,
+            ["Metric", "Value"],
+            [
+                ["Events/sec target", f"{float(fanout.get('event_qps', 0)):.1f}"],
+                ["Bundles/event", fanout.get("bundles_per_event", 65)],
+                ["Bundle SQL/sec target", f"{float(fanout.get('target_bundle_qps', 0)):,.0f}"],
+                ["Client bundle slots", fanout.get("configured_bundle_slots", "")],
+                ["Max fully fanned-out events by client slots", fanout.get("max_events_fully_fanned_out_by_client", "")],
+                ["Slots needed if bundles occupy 350ms", fanout.get("required_bundle_slots_if_queries_run_350ms", "")],
+                ["Slots needed if bundles occupy 500ms", fanout.get("required_bundle_slots_if_queries_run_500ms", "")],
+                ["Configured / 350ms requirement", f"{float(fanout.get('configured_vs_350ms_requirement_pct', 0)):.1f}%"],
+                ["Configured / 500ms requirement", f"{float(fanout.get('configured_vs_500ms_requirement_pct', 0)):.1f}%"],
+            ],
+        )
+        lines.append("")
 
     unique_events, unique_full_sets, binding_rows = binding_reuse_rows(mixed, reads)
     lines.append("## Binding Reuse / Test Realism")

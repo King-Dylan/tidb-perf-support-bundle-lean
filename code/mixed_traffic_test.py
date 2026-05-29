@@ -777,6 +777,36 @@ def bundle_coverage_summary(rows: list[dict[str, Any]], bundle_count: int) -> di
     }
 
 
+def fanout_capacity_summary(
+    read_rate: float,
+    bundle_count: int,
+    pool_size: int,
+    bundle_workers: int,
+    event_workers: int,
+    max_pending_events: int,
+) -> dict[str, Any]:
+    target_bundle_qps = read_rate * bundle_count
+    configured_bundle_slots = min(pool_size, bundle_workers)
+    required_slots_350 = math.ceil(target_bundle_qps * 0.350)
+    required_slots_500 = math.ceil(target_bundle_qps * 0.500)
+    return {
+        "model": "independent fan-out/fan-in: all bundle queries for an event share bindings/reference_time and can run in parallel",
+        "event_qps": read_rate,
+        "bundles_per_event": bundle_count,
+        "target_bundle_qps": target_bundle_qps,
+        "pool_size": pool_size,
+        "bundle_workers": bundle_workers,
+        "event_workers": event_workers,
+        "max_pending_events": max_pending_events,
+        "configured_bundle_slots": configured_bundle_slots,
+        "max_events_fully_fanned_out_by_client": configured_bundle_slots // bundle_count if bundle_count else 0,
+        "required_bundle_slots_if_queries_run_350ms": required_slots_350,
+        "required_bundle_slots_if_queries_run_500ms": required_slots_500,
+        "configured_vs_350ms_requirement_pct": (configured_bundle_slots / required_slots_350 * 100.0) if required_slots_350 else 0.0,
+        "configured_vs_500ms_requirement_pct": (configured_bundle_slots / required_slots_500 * 100.0) if required_slots_500 else 0.0,
+    }
+
+
 def print_bundle_coverage(summary: dict[str, Any]) -> None:
     events = int(summary.get("events", 0))
     bundle_count = int(summary.get("bundle_count", 65))
@@ -806,6 +836,34 @@ def print_bundle_coverage(summary: dict[str, Any]) -> None:
             f"  {item['window']:<11s} {item['avg_bundles_per_event']:>8.2f}"
             f"              {item['total_bundle_executions']:>10,}"
         )
+
+
+def print_fanout_capacity(summary: dict[str, Any]) -> None:
+    bundle_count = int(summary["bundles_per_event"])
+    print()
+    print("Fan-out capacity model:")
+    print(
+        f"  Target: {summary['event_qps']:.1f} events/sec * {bundle_count} bundles/event "
+        f"= {summary['target_bundle_qps']:.1f} bundle SQL/sec"
+    )
+    print(
+        f"  Client bundle slots: min(pool_size={summary['pool_size']}, "
+        f"bundle_workers={summary['bundle_workers']}) = {summary['configured_bundle_slots']}"
+    )
+    print(
+        f"  Fully fanned-out events possible at once by client slots: "
+        f"{summary['max_events_fully_fanned_out_by_client']} events"
+    )
+    print(
+        f"  Slots needed if every bundle occupies a slot for 350ms: "
+        f"{summary['required_bundle_slots_if_queries_run_350ms']} "
+        f"({summary['configured_vs_350ms_requirement_pct']:.1f}% configured)"
+    )
+    print(
+        f"  Slots needed if every bundle occupies a slot for 500ms: "
+        f"{summary['required_bundle_slots_if_queries_run_500ms']} "
+        f"({summary['configured_vs_500ms_requirement_pct']:.1f}% configured)"
+    )
 
 
 def main() -> None:
@@ -924,6 +982,15 @@ def main() -> None:
         f"Client workers: event_workers={event_workers} bundle_workers={bundle_workers} "
         f"max_pending_events={max_pending_events} summary_only={args.summary_only}"
     )
+    fanout_capacity = fanout_capacity_summary(
+        args.read_rate,
+        len(all_bundles),
+        args.pool_size,
+        bundle_workers,
+        event_workers,
+        max_pending_events,
+    )
+    print_fanout_capacity(fanout_capacity)
     event_executor = ThreadPoolExecutor(max_workers=event_workers)
     bundle_executor = ThreadPoolExecutor(max_workers=bundle_workers)
 
@@ -1008,6 +1075,7 @@ def main() -> None:
     print_summary("Hot-key steady", hot_reads)
     coverage = bundle_coverage_summary(steady_reads, len(all_bundles))
     print_bundle_coverage(coverage)
+    print_fanout_capacity(fanout_capacity)
     print_summary(
         "Bundle task queue avg per event",
         [{"ms": float(r.get("bundle_task_queue_avg_ms", 0.0))} for r in steady_reads],
@@ -1081,8 +1149,10 @@ def main() -> None:
         "preagg_mode": args.preagg_mode,
         "preagg_layout": args.preagg_layout,
         "preagg_bundles": sorted(preagg_bundles),
+        "fanout_capacity": fanout_capacity,
         "skip_initial_warmup": args.skip_initial_warmup,
         "query_shape_notes": {
+            "event_bundle_dependency": "The 65 bundle queries for one event are independent; they use the same event bindings/reference_time and fan in only when the scoring app needs the combined feature vector.",
             "group_c_join_key": "p.parsed_interaction_id = d.interaction_id",
             "group_c_timestamp_filter": "v15 applies both p.event_date >= cutoff and d.jms_timestamp >= cutoff on runtime Group C joins",
             "payment_join_key_source": "risk_profile_token is modeled as <sessionID>:<interactionID>; parsed_interaction_id contains the suffix used for the join",

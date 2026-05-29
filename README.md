@@ -7,7 +7,7 @@ This bundle intentionally excludes older experiment helpers and the separate `ru
 ## Contents
 
 - `code/`: runnable scripts with the same layout as the working repo.
-- `connection/.db_config.json`: current Premium connection config, including password.
+- `connection/.db_config.json`: local Premium connection config when present; ignored by git.
 - `docs/`: v15 runbook and audit notes.
 - `results_reference/current_schema_ddl.sql`: current DDL for 2 base tables + 6 pre-agg tables.
 - `results_reference/current_tiflash_status.txt`: current TiFlash replica status.
@@ -39,25 +39,24 @@ This bundle intentionally excludes older experiment helpers and the separate `ru
 
 ## Workload
 
-- 1 event = 65 bundle queries.
+- 1 event = 65 independent bundle queries. They share the same event bindings/reference time and can fan out in parallel; scoring waits for the combined fan-in result.
 - Runtime-only windows: `1d`, `7d`, `30d`, `90d`.
 - `180d` windows use the 6 consolidated pre-agg tables.
 - Group C runtime joins include timestamp filters on both tables.
 - Per-query cutoff: `READ_MAX_EXECUTION_TIME_MS=500`.
 - Background writes are enabled by default in the mixed benchmark.
 
-## QPS Mapping
+## Event QPS Target
 
-Hua requested query QPS. The demo benchmark accepts events/sec.
+The final SLA is stated in event QPS. The benchmark accepts events/sec and
+issues 65 bundled SQLs for every event.
 
-| Requested query QPS | Events/sec to run |
-| --- | ---: |
-| 200 | 3 |
-| 500 | 8 |
-| 1000 | 15 |
-| 10000 | 154 |
+| Target | Events/sec | Bundle SQL/sec |
+| --- | ---: | ---: |
+| Normal | 100 | 6,500 |
+| Peak | 1000 | 65,000 |
 
-Formula: `events/sec = query_qps / 65`, rounded to a whole number.
+Formula: `bundle_sql_per_sec = events/sec * 65`.
 
 ## Setup
 
@@ -153,9 +152,8 @@ The benchmark wrapper now defaults to the optimized prod180 path:
 Other event rates:
 
 ```bash
-./run_v15_prod180_benchmark.sh 8 300
-./run_v15_prod180_benchmark.sh 15 300
-./run_v15_prod180_benchmark.sh 154 300
+./run_v15_prod180_benchmark.sh 100 300
+./run_v15_prod180_benchmark.sh 1000 300
 ```
 
 Per Hua's request, stop if average latency exceeds `1s`.
@@ -164,6 +162,8 @@ Per Hua's request, stop if average latency exceeds `1s`.
 
 The packaged `mixed_traffic_test.py` records:
 
+- event-level fan-out capacity: target bundle SQL/sec, client bundle slots,
+  and 350/500ms slot requirements
 - bundle task queue average/max per event
 - DB connection wait average/max per event
 
@@ -177,4 +177,5 @@ This indicates the app was not waiting on the connection pool and client queuein
 
 ## Security Note
 
-This bundle includes internal credentials. Do not forward externally or to the customer.
+The git repository ignores `.db_config.json`. If a local exported bundle includes
+credentials beside the repo, do not forward those files externally or to the customer.
