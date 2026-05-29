@@ -135,7 +135,12 @@ def configure_read_session(cur, max_execution_time_ms: int | None = None) -> Non
 
 
 def make_pool(size: int, max_execution_time_ms: int | None = None) -> Queue:
-    cfg = get_db_config(save_msg="mixed traffic test")
+    cfg = dict(get_db_config(save_msg="mixed traffic test"))
+    cfg.setdefault("connect_timeout", int(os.getenv("INTUIT_DB_CONNECT_TIMEOUT_SEC", "10")))
+    socket_timeout_default = "5" if max_execution_time_ms else "60"
+    socket_timeout = int(os.getenv("INTUIT_DB_SOCKET_TIMEOUT_SEC", socket_timeout_default))
+    cfg.setdefault("read_timeout", socket_timeout)
+    cfg.setdefault("write_timeout", socket_timeout)
     pool: Queue = Queue(maxsize=size)
     for _ in range(size):
         conn = pymysql.connect(**cfg)
@@ -533,6 +538,7 @@ def run_one_event_detailed(
 ) -> dict[str, Any]:
     bindings = event["bindings"]
     reference_time = datetime.fromisoformat(event["reference_time"])
+    event_start = time.perf_counter()
 
     def run_bundle(bundle, group: str, queued_at: float | None = None) -> dict[str, Any]:
         worker_started = time.perf_counter()
@@ -547,6 +553,7 @@ def run_one_event_detailed(
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 cur.fetchall()
+            completed_ms = (time.perf_counter() - event_start) * 1000.0
             return {
                 "bundle_id": bundle.bundle_id,
                 "group": group,
@@ -554,10 +561,12 @@ def run_one_event_detailed(
                 "base_filter": getattr(bundle, "base_filter", None),
                 "preagg_applied": bundle.bundle_id in preagg_bundles,
                 "ms": (time.perf_counter() - started) * 1000.0,
+                "completed_ms": completed_ms,
                 "task_queue_ms": task_queue_ms,
                 "conn_wait_ms": conn_wait_ms,
             }
         except Exception as exc:
+            completed_ms = (time.perf_counter() - event_start) * 1000.0
             return {
                 "bundle_id": bundle.bundle_id,
                 "group": group,
@@ -565,6 +574,7 @@ def run_one_event_detailed(
                 "base_filter": getattr(bundle, "base_filter", None),
                 "preagg_applied": bundle.bundle_id in preagg_bundles,
                 "ms": -1.0,
+                "completed_ms": completed_ms,
                 "task_queue_ms": task_queue_ms,
                 "conn_wait_ms": conn_wait_ms,
                 "error": str(exc)[:300],
@@ -572,7 +582,6 @@ def run_one_event_detailed(
         finally:
             pool.put(conn)
 
-    event_start = time.perf_counter()
     if bundle_executor is None:
         with ThreadPoolExecutor(max_workers=len(all_bundles)) as ex:
             bundle_results = list(ex.map(lambda item: run_bundle(*item), all_bundles))
@@ -587,10 +596,13 @@ def run_one_event_detailed(
     bundle_ms = [float(b["ms"]) for b in successful]
     task_queue_ms = [float(b.get("task_queue_ms", 0.0)) for b in bundle_results]
     conn_wait_ms = [float(b.get("conn_wait_ms", 0.0)) for b in bundle_results]
+    completion_ms = sorted(float(b.get("completed_ms", 0.0)) for b in successful)
+    bundle_60th_completion_ms = completion_ms[59] if len(completion_ms) >= 60 else -1.0
+    bundle_65th_completion_ms = completion_ms[len(all_bundles) - 1] if len(completion_ms) >= len(all_bundles) else -1.0
     slowest = sorted(successful, key=lambda b: b["ms"], reverse=True)[:8]
     cutoff_counts = {
         str(cutoff): sum(1 for b in successful if float(b["ms"]) <= cutoff)
-        for cutoff in (50, 100, 150, 200, 350, 500)
+        for cutoff in (50, 100, 150, 200, 250, 300, 350, 400, 450, 500)
     }
     return {
         "event": event["invoice_number"],
@@ -606,6 +618,8 @@ def run_one_event_detailed(
         "bundle_task_queue_max_ms": max(task_queue_ms) if task_queue_ms else 0.0,
         "bundle_conn_wait_avg_ms": statistics.mean(conn_wait_ms) if conn_wait_ms else 0.0,
         "bundle_conn_wait_max_ms": max(conn_wait_ms) if conn_wait_ms else 0.0,
+        "bundle_60th_completion_ms": bundle_60th_completion_ms,
+        "bundle_65th_completion_ms": bundle_65th_completion_ms,
         "slowest_bundles": slowest,
         "bundle_counts_by_cutoff": cutoff_counts,
         "bundle_results_omitted": not store_bundle_results,
@@ -1092,6 +1106,14 @@ def main() -> None:
         "DB connection wait max per event",
         [{"ms": float(r.get("bundle_conn_wait_max_ms", 0.0))} for r in steady_reads],
     )
+    print_summary(
+        "Score-ready 60/65 completion",
+        [{"ms": float(r.get("bundle_60th_completion_ms", -1.0))} for r in steady_reads if float(r.get("bundle_60th_completion_ms", -1.0)) >= 0],
+    )
+    print_summary(
+        "Full 65/65 completion",
+        [{"ms": float(r.get("bundle_65th_completion_ms", -1.0))} for r in steady_reads if float(r.get("bundle_65th_completion_ms", -1.0)) >= 0],
+    )
     achieved_rate = len(all_reads) / args.duration if args.duration else 0.0
     print(f"Target read rate: {args.read_rate:.1f}/s, achieved submitted-completed rate: {achieved_rate:.1f}/s")
     if achieved_rate < args.read_rate * 0.95:
@@ -1179,6 +1201,20 @@ def main() -> None:
             ),
             "bundle_conn_wait_max_per_event": summarize(
                 [float(r.get("bundle_conn_wait_max_ms", 0.0)) for r in steady_reads]
+            ),
+            "score_ready_60_of_65_completion": summarize(
+                [
+                    float(r.get("bundle_60th_completion_ms", -1.0))
+                    for r in steady_reads
+                    if float(r.get("bundle_60th_completion_ms", -1.0)) >= 0
+                ]
+            ),
+            "full_65_of_65_completion": summarize(
+                [
+                    float(r.get("bundle_65th_completion_ms", -1.0))
+                    for r in steady_reads
+                    if float(r.get("bundle_65th_completion_ms", -1.0)) >= 0
+                ]
             ),
         },
         "bundle_coverage": coverage,

@@ -5,6 +5,8 @@ Workload: prod180 hybrid, TiKV/TiDB only, 65 independent bundle SQLs per event, 
 
 ## Summary
 
+Follow-up score-ready testing is captured in `ec2_runtime_vs_180d_preagg_preference_report.md`. That newer report separates customer preference 1 runtime-only from preference 2 180d-only pre-agg and uses explicit `60/65 completion` latency.
+
 | Run | Target eps | Achieved eps | Events | Event p50 | Event p95 | Event p99 | >500 events | >=60/65 by 350ms | >=60/65 by 500ms | 65/65 by 500ms | Queue avg p95 | Queue max p95 | Conn wait max p95 | Result |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 3 eps / 30s / pool 256 | 3.0 | 3.0 | 91 | 82.5 | 553.5 | 583.1 | 8 | 91/91 | 91/91 | 83/91 | 7.1 | 13.1 | 0.018 | completed |
@@ -21,7 +23,7 @@ Workload: prod180 hybrid, TiKV/TiDB only, 65 independent bundle SQLs per event, 
 
 ## Important Measurement Caveat
 
-The current benchmark event latency waits for all 65 bundle tasks to finish. The product SLA allows a fallback when `60/65` bundles are back within 500ms, so the next benchmark change should report a separate score-ready latency, such as `time_to_60_bundles` and `time_to_65_bundles`. That will align the reported event latency with the 500ms fallback model while still tracking the cost of straggler queries.
+This initial report used event latency that waited for all 65 bundle tasks to finish. The benchmark now records separate score-ready latency as `60/65 completion` and full completion as `65/65 completion`; see `ec2_runtime_vs_180d_preagg_preference_report.md` for the updated SLA-aligned view.
 
 ## Result JSONs
 
@@ -32,5 +34,5 @@ The current benchmark event latency waits for all 65 bundle tasks to finish. The
 ## Next Optimization Targets
 
 - Reduce high-fan-out pressure from the remaining slow/tail bundles, especially `group_b_bundle_012`, `group_c_bundle_018`, and 180d distinct helper scans.
-- Add score-ready metrics to `mixed_traffic_test.py` so event TP99 can be evaluated as `60/65` fallback and `65/65` complete separately.
+- Continue using score-ready metrics from `mixed_traffic_test.py` so event TP99 can be evaluated as `60/65` fallback and `65/65` complete separately.
 - For 100+ eps, one EC2 client process is not enough in the current shape. We either need multiple load generators, much lower per-bundle latency, or a server-side/batched execution model that avoids 65 independent round trips per event.

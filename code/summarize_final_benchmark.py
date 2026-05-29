@@ -41,6 +41,8 @@ DROPOFF_WINDOWS_MS = [
     ("200-350ms", 200, 350),
     ("350-500ms", 350, 500),
 ]
+BUNDLES_PER_EVENT = 65
+BUNDLE_COUNTS_BY_GROUP = {"Group A": 20, "Group B": 20, "Group C": 25}
 
 
 def pct(vals: list[float], p: float) -> float:
@@ -81,21 +83,52 @@ def summarize_events(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return summarize_vals(vals)
 
 
+def completion_summary(rows: list[dict[str, Any]], field: str) -> dict[str, float | int]:
+    vals = [float(r[field]) for r in rows if float(r.get(field, -1.0)) >= 0]
+    return summarize_vals(vals)
+
+
+def event_total_bundles(row: dict[str, Any]) -> int:
+    bundles = row.get("bundle_results", [])
+    if bundles:
+        return len(bundles)
+    return int(row.get("bundle_count", BUNDLES_PER_EVENT))
+
+
+def event_bundles_by_cutoff(row: dict[str, Any], cutoff_ms: int) -> int:
+    counts = row.get("bundle_counts_by_cutoff", {})
+    if counts:
+        if str(cutoff_ms) in counts:
+            return int(counts[str(cutoff_ms)])
+        lower_cutoffs = [int(k) for k in counts if int(k) <= cutoff_ms]
+        return int(counts[str(max(lower_cutoffs))]) if lower_cutoffs else 0
+    return sum(1 for b in row.get("bundle_results", []) if 0 <= float(b["ms"]) <= cutoff_ms)
+
+
+def event_bundle_errors(row: dict[str, Any]) -> int:
+    if "error_count" in row:
+        return int(row.get("error_count") or 0)
+    return sum(1 for b in row.get("bundle_results", []) if float(b["ms"]) < 0)
+
+
 def bundle_coverage(rows: list[dict[str, Any]]) -> dict[str, Any]:
     coverage = []
     for r in rows:
-        bundles = r.get("bundle_results", [])
+        total = event_total_bundles(r)
+        by350 = event_bundles_by_cutoff(r, 350)
+        by500 = event_bundles_by_cutoff(r, 500)
+        errors = event_bundle_errors(r)
         coverage.append(
             {
                 "event": r["event"],
                 "kind": r["kind"],
                 "event_ms": float(r["ms"]),
-                "by350": sum(1 for b in bundles if 0 <= float(b["ms"]) <= 350),
-                "by500": sum(1 for b in bundles if 0 <= float(b["ms"]) <= 500),
-                "over350": sum(1 for b in bundles if float(b["ms"]) > 350),
-                "over500": sum(1 for b in bundles if float(b["ms"]) > 500),
-                "errors": sum(1 for b in bundles if float(b["ms"]) < 0),
-                "total": len(bundles),
+                "by350": by350,
+                "by500": by500,
+                "over350": max(total - by350 - errors, 0),
+                "over500": max(total - by500 - errors, 0),
+                "errors": errors,
+                "total": total,
             }
         )
     return {
@@ -136,10 +169,27 @@ def binding_reuse_rows(data: dict[str, Any], reads: list[dict[str, Any]]) -> tup
     return len(set(read["event"] for read in reads)), len(set(full_sets)), rows
 
 
-def runtime_preagg_counts(rows: list[dict[str, Any]]) -> tuple[list[list[Any]], int, int]:
+def runtime_preagg_counts(rows: list[dict[str, Any]], preagg_bundle_ids: list[str] | None = None) -> tuple[list[list[Any]], int, int]:
     by_bundle: dict[str, dict[str, Any]] = {}
     runtime_execs = 0
     preagg_execs = 0
+    if rows and not rows[0].get("bundle_results"):
+        preagg_by_group: dict[str, int] = defaultdict(int)
+        for bundle_id in preagg_bundle_ids or []:
+            if bundle_id.startswith("group_a_"):
+                preagg_by_group["Group A"] += 1
+            elif bundle_id.startswith("group_b_"):
+                preagg_by_group["Group B"] += 1
+            elif bundle_id.startswith("group_c_"):
+                preagg_by_group["Group C"] += 1
+        rows_out = []
+        for group in ["Group A", "Group B", "Group C"]:
+            preagg = preagg_by_group[group] * len(rows)
+            runtime = (BUNDLE_COUNTS_BY_GROUP[group] - preagg_by_group[group]) * len(rows)
+            rows_out.append([group, runtime, preagg, runtime + preagg])
+        rows_out.append(["Total", sum(r[1] for r in rows_out), sum(r[2] for r in rows_out), sum(r[3] for r in rows_out)])
+        return rows_out, sum(r[1] for r in rows_out[:-1]), sum(r[2] for r in rows_out[:-1])
+
     for event in rows:
         for bundle in event.get("bundle_results", []):
             bid = bundle["bundle_id"]
@@ -167,7 +217,7 @@ def bundle_return_histogram(rows: list[dict[str, Any]]) -> list[list[Any]]:
         per_event_counts = []
         total_returned = 0
         for event in rows:
-            count = sum(1 for b in event.get("bundle_results", []) if 0 <= float(b["ms"]) <= cutoff)
+            count = event_bundles_by_cutoff(event, cutoff)
             per_event_counts.append(count)
             total_returned += count
         out.append(
@@ -180,12 +230,7 @@ def bundle_return_histogram(rows: list[dict[str, Any]]) -> list[list[Any]]:
                 total_returned,
             ]
         )
-    timeout_or_errors = sum(
-        1
-        for event in rows
-        for b in event.get("bundle_results", [])
-        if float(b["ms"]) < 0 or float(b["ms"]) > 500
-    )
+    timeout_or_errors = sum(max(event_total_bundles(event) - event_bundles_by_cutoff(event, 500), 0) for event in rows)
     out.append([">500ms or error", "", "", "", "", timeout_or_errors])
     return out
 
@@ -196,19 +241,12 @@ def bundle_return_dropoff(rows: list[dict[str, Any]]) -> list[list[Any]]:
     for label, start_ms, end_ms in DROPOFF_WINDOWS_MS:
         total = 0
         for event in rows:
-            for bundle in event.get("bundle_results", []):
-                ms = float(bundle["ms"])
-                if start_ms == 0:
-                    total += 1 if 0 <= ms <= end_ms else 0
-                else:
-                    total += 1 if start_ms < ms <= end_ms else 0
+            if start_ms == 0:
+                total += event_bundles_by_cutoff(event, end_ms)
+            else:
+                total += event_bundles_by_cutoff(event, end_ms) - event_bundles_by_cutoff(event, start_ms)
         out.append([label, f"{(total / event_count):.1f}" if event_count else "0.0", f"{total:,}"])
-    timeout_or_errors = sum(
-        1
-        for event in rows
-        for bundle in event.get("bundle_results", [])
-        if float(bundle["ms"]) < 0 or float(bundle["ms"]) > 500
-    )
+    timeout_or_errors = sum(max(event_total_bundles(event) - event_bundles_by_cutoff(event, 500), 0) for event in rows)
     out.append([">500/error", f"{(timeout_or_errors / event_count):.2f}" if event_count else "0.00", f"{timeout_or_errors:,}"])
     return out
 
@@ -335,7 +373,10 @@ def main() -> None:
         lines.append(f"- Group C join key: {notes.get('group_c_join_key')}")
         lines.append(f"- Group C timestamp filter: {notes.get('group_c_timestamp_filter')}")
     if reads and not reads[0].get("bundle_results"):
-        lines.append("- WARNING: this JSON does not include full `bundle_results`; slow-bundle and 60/65 timeout stats are incomplete.")
+        if reads[0].get("bundle_counts_by_cutoff"):
+            lines.append("- WARNING: this JSON omits full `bundle_results`; coverage stats are available, but slow-bundle details are limited.")
+        else:
+            lines.append("- WARNING: this JSON does not include full `bundle_results`; slow-bundle and 60/65 timeout stats are incomplete.")
     lines.append("")
 
     if fanout:
@@ -381,7 +422,7 @@ def main() -> None:
     lines.append(f"Pre-agg bundle IDs: {', '.join(mixed.get('preagg_bundles', []))}")
     lines.append("")
 
-    counts_rows, runtime_execs, preagg_execs = runtime_preagg_counts(reads)
+    counts_rows, runtime_execs, preagg_execs = runtime_preagg_counts(reads, mixed.get("preagg_bundles", []))
     lines.append("## Runtime vs Pre-Agg Bundle Counts")
     lines.append("")
     lines.append(
@@ -407,6 +448,37 @@ def main() -> None:
         latency_rows.append([label, s["n"], fmt_ms(s["p50"]), fmt_ms(s["p95"]), fmt_ms(s["p99"]), fmt_ms(s["max"]), s["over350"], s["over500"]])
     write_table(lines, ["Scope", "n", "p50", "p95", "p99", "max", ">350ms", ">500ms"], latency_rows)
     lines.append("")
+
+    if any(float(r.get("bundle_60th_completion_ms", -1.0)) >= 0 for r in reads):
+        lines.append("## Score-Ready Completion Latency")
+        lines.append("")
+        lines.append("This measures wall-clock time from event dispatch until enough bundle queries have completed.")
+        lines.append("")
+        completion_rows = []
+        for label, subset in [("All", reads), ("Normal", normal), ("Hot-key", hot)]:
+            s60 = completion_summary(subset, "bundle_60th_completion_ms")
+            s65 = completion_summary(subset, "bundle_65th_completion_ms")
+            completion_rows.append(
+                [
+                    label,
+                    s60["n"],
+                    fmt_ms(s60["p50"]),
+                    fmt_ms(s60["p95"]),
+                    fmt_ms(s60["p99"]),
+                    s60["over350"],
+                    s60["over500"],
+                    s65["n"],
+                    fmt_ms(s65["p95"]),
+                    fmt_ms(s65["p99"]),
+                    s65["over500"],
+                ]
+            )
+        write_table(
+            lines,
+            ["Scope", "60/65 n", "60/65 p50", "60/65 p95", "60/65 p99", "60/65 >350", "60/65 >500", "65/65 n", "65/65 p95", "65/65 p99", "65/65 >500"],
+            completion_rows,
+        )
+        lines.append("")
 
     all_cov = bundle_coverage(reads)
     lines.append("## Bundle Coverage Scorecard")
