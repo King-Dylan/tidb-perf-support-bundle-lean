@@ -38,6 +38,10 @@ from lib.query_templates import load_query_templates
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "benchmark_results"
 DEFAULT_HINTED_GROUP_A_BUNDLES = {"group_a_bundle_002", "group_a_bundle_006"}
+GROUP_A_DIMENSION_ROLLUP_BUNDLES = {
+    "group_a_bundle_010",
+    "group_a_bundle_014",
+}
 # Bundles verified in the support run. The renderer also auto-detects the same
 # shape for other bundles whose GROUP BY keys are fixed by equality predicates.
 DEFAULT_NO_GROUP_BY_BUNDLES = {
@@ -144,6 +148,9 @@ class GroupABundleSpec:
     templates: tuple[GroupATemplateSpec, ...]
 
     def render_sql(self, reference_time: datetime, hinted: bool = False) -> str:
+        base_bundle_id = self.bundle_id.split("_split", 1)[0]
+        if not hinted and base_bundle_id in GROUP_A_DIMENSION_ROLLUP_BUNDLES:
+            return render_group_a_dimension_rollup_sql(self, reference_time)
         select_parts: list[str] = []
         for tmpl in self.templates:
             select_parts.append(f"{build_group_a_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
@@ -200,6 +207,81 @@ def build_group_a_metric_expr(tmpl: GroupATemplateSpec) -> str:
     if distinct_match:
         return f"COUNT(DISTINCT CASE WHEN {cond} THEN {distinct_match.group(1).strip()} END)"
     raise ValueError(f"Unsupported Group A aggregate expression: {expr}")
+
+
+def group_a_rollup_columns(bundle: GroupABundleSpec) -> tuple[str, ...]:
+    columns: set[str] = set()
+    for tmpl in bundle.templates:
+        if tmpl.extra_predicate:
+            columns.update(re.findall(r"\bp\.([a-z0-9_]+)\s*=", tmpl.extra_predicate, flags=re.I))
+        distinct_match = re.fullmatch(r"COUNT\(DISTINCT\(p\.([a-z0-9_]+)\)\)", tmpl.select_expr, flags=re.I)
+        if distinct_match:
+            columns.add(distinct_match.group(1))
+    preferred = ("mt_gateway", "transaction_type", "card_type", "entry_method")
+    ordered = [column for column in preferred if column in columns]
+    ordered.extend(sorted(columns - set(ordered)))
+    return tuple(ordered)
+
+
+def group_a_rollup_metric_expr(tmpl: GroupATemplateSpec, rollup_alias: str = "b") -> str:
+    expr = tmpl.select_expr
+    cond = tmpl.extra_predicate
+    if cond is None:
+        if expr == "COUNT(*)":
+            return f"SUM({rollup_alias}.row_count)"
+        if expr == "SUM(p.amount)":
+            return f"SUM({rollup_alias}.amount_sum)"
+        if expr == "MIN(p.amount)":
+            return f"MIN({rollup_alias}.amount_min)"
+        if expr == "MAX(p.amount)":
+            return f"MAX({rollup_alias}.amount_max)"
+        distinct_match = re.fullmatch(r"COUNT\(DISTINCT\(p\.([a-z0-9_]+)\)\)", expr, re.I)
+        if distinct_match:
+            return f"COUNT(DISTINCT {rollup_alias}.{distinct_match.group(1)})"
+    else:
+        outer_cond = re.sub(r"\bp\.", f"{rollup_alias}.", cond)
+        if expr == "COUNT(*)":
+            return f"SUM(CASE WHEN {outer_cond} THEN {rollup_alias}.row_count ELSE 0 END)"
+        if expr == "SUM(p.amount)":
+            return f"SUM(CASE WHEN {outer_cond} THEN {rollup_alias}.amount_sum END)"
+        if expr == "MIN(p.amount)":
+            return f"MIN(CASE WHEN {outer_cond} THEN {rollup_alias}.amount_min END)"
+        if expr == "MAX(p.amount)":
+            return f"MAX(CASE WHEN {outer_cond} THEN {rollup_alias}.amount_max END)"
+    raise ValueError(f"Unsupported Group A rollup expression: {expr}")
+
+
+def group_a_rollup_presence_expr(tmpl: GroupATemplateSpec, rollup_alias: str = "b") -> str:
+    if not tmpl.extra_predicate:
+        raise ValueError(f"{tmpl.template_id} has no presence predicate")
+    outer_cond = re.sub(r"\bp\.", f"{rollup_alias}.", tmpl.extra_predicate)
+    return f"SUM(CASE WHEN {outer_cond} THEN {rollup_alias}.row_count ELSE 0 END)"
+
+
+def render_group_a_dimension_rollup_sql(bundle: GroupABundleSpec, reference_time: datetime) -> str:
+    rollup_columns = group_a_rollup_columns(bundle)
+    if not rollup_columns:
+        raise ValueError(f"No dimension rollup columns detected for {bundle.bundle_id}")
+    cutoff_ms = int((reference_time.timestamp() - (bundle.window_days * 86400)) * 1000)
+    select_parts: list[str] = []
+    for tmpl in bundle.templates:
+        select_parts.append(f"{group_a_rollup_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
+        if tmpl.extra_predicate:
+            select_parts.append(f"{group_a_rollup_presence_expr(tmpl)} AS `{presence_column(tmpl.template_id)}`")
+    dimension_select = ", ".join(f"p.{column}" for column in rollup_columns)
+    dimension_group_by = ", ".join(f"p.{column}" for column in rollup_columns)
+    return (
+        "SELECT\n  "
+        + ",\n  ".join(select_parts)
+        + "\nFROM (\n"
+        + f"  SELECT {dimension_select}, COUNT(*) AS row_count, SUM(p.amount) AS amount_sum, "
+        + "MIN(p.amount) AS amount_min, MAX(p.amount) AS amount_max\n"
+        + "  FROM pmt_txn_fact p\nWHERE "
+        + f"{bundle.base_filter} AND p.event_date >= {cutoff_ms}\n"
+        + f"  GROUP BY {dimension_group_by}\n"
+        + ") b\n"
+        + "HAVING SUM(b.row_count) > 0;"
+    )
 
 
 def cluster_group_a_templates() -> list[GroupABundleSpec]:

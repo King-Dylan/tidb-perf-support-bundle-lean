@@ -307,6 +307,8 @@ def method_for(bundle_id: str, original_sql: str, optimized_sql: str, best_varia
     methods: list[str] = []
     if "GROUP BY" in original_sql and "HAVING COUNT(*) > 0" in optimized_sql:
         methods.append("SQL rewrite: remove redundant GROUP BY on constant key, keep empty-result semantics with HAVING COUNT(*) > 0")
+    if "COUNT(*) AS row_count" in optimized_sql and "amount_sum" in optimized_sql and ") b\nHAVING SUM(b.row_count) > 0" in optimized_sql:
+        methods.append("SQL rewrite: pre-aggregate low-cardinality payment dimensions, then pivot CASE metrics from the compact rollup")
     if "raw_boundary AS" in optimized_sql and "raw_boundary AS" not in original_sql:
         methods.append("SQL rewrite: materialize raw cutoff boundary once via CTE and share it across distinct metrics")
     if "idx_pmt_" in optimized_sql or bundle_id.startswith("group_c_bundle_"):

@@ -1,0 +1,24 @@
+[
+  {
+    "bundle_id": "group_a_bundle_010",
+    "candidate": "group_a_dimension_rollup",
+    "same_result": true,
+    "current_ms": 420.9404999855906,
+    "current_scan_sum": 119821,
+    "best_ms": 115.11670897016302,
+    "best_variant": "optimized_hashagg_16_8",
+    "best_scan_sum": 119821,
+    "accepted": true
+  },
+  {
+    "bundle_id": "group_a_bundle_014",
+    "candidate": "group_a_dimension_rollup",
+    "same_result": true,
+    "current_ms": 307.6995420269668,
+    "current_scan_sum": 340239,
+    "best_ms": 104.72979204496369,
+    "best_variant": "optimized_hashagg_16_8",
+    "best_scan_sum": 340239,
+    "accepted": true
+  }
+]

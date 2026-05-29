@@ -1,0 +1,13 @@
+[
+  {
+    "bundle_id": "group_b_bundle_012",
+    "candidate": "group_b_numeric_projection",
+    "same_result": true,
+    "current_ms": 1949.1747500142083,
+    "current_scan_sum": 172835,
+    "best_ms": 1404.6052089543082,
+    "best_variant": "optimized_hashagg_32_8",
+    "best_scan_sum": 172835,
+    "accepted": true
+  }
+]

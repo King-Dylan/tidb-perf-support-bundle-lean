@@ -64,10 +64,12 @@ def resolve_path(raw: str) -> Path:
 
 
 def normalize_value(value: Any) -> Any:
+    if isinstance(value, str) and re.fullmatch(r"-?\d+(?:\.\d+)?(?:E[+-]?\d+)?", value, flags=re.I):
+        return str(Decimal(value).normalize())
     if isinstance(value, Decimal):
         return str(value.normalize())
-    if isinstance(value, float):
-        return round(value, 8)
+    if isinstance(value, (int, float)):
+        return str(Decimal(str(value)).normalize())
     return value
 
 
@@ -177,6 +179,13 @@ def group_a_rollup_metric_expr(tmpl, rollup_alias: str = "b") -> str:
     raise ValueError(f"Unsupported Group A rollup expression for {tmpl.template_id}: {expr} / {cond}")
 
 
+def group_a_rollup_presence_expr(tmpl, rollup_alias: str = "b") -> str:
+    if not tmpl.extra_predicate:
+        raise ValueError(f"{tmpl.template_id} has no presence predicate")
+    outer_cond = re.sub(r"\bp\.", f"{rollup_alias}.", tmpl.extra_predicate)
+    return f"SUM(CASE WHEN {outer_cond} THEN {rollup_alias}.row_count ELSE 0 END)"
+
+
 def render_group_a_dimension_rollup_sql(bundle: GroupABundleSpec, reference_time: datetime) -> str:
     columns = group_a_rollup_columns(bundle)
     if not columns:
@@ -186,7 +195,7 @@ def render_group_a_dimension_rollup_sql(bundle: GroupABundleSpec, reference_time
     for tmpl in bundle.templates:
         select_parts.append(f"{group_a_rollup_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
         if tmpl.extra_predicate:
-            select_parts.append(f"{group_a_rollup_metric_expr(tmpl)} AS `{presence_column(tmpl.template_id)}`")
+            select_parts.append(f"{group_a_rollup_presence_expr(tmpl)} AS `{presence_column(tmpl.template_id)}`")
     inner_columns = ", ".join(f"p.{column}" for column in columns)
     group_columns = ", ".join(f"p.{column}" for column in columns)
     return (
@@ -221,6 +230,16 @@ def group_b_projected_metric_expr(tmpl) -> str:
     return build_group_b_metric_expr(tmpl)
 
 
+def group_b_projected_presence_expr(tmpl) -> str:
+    cond = tmpl.extra_predicate
+    if not cond:
+        raise ValueError(f"{tmpl.template_id} has no presence predicate")
+    for column in NUMERIC_SCORE_COLUMNS:
+        if cond == f"d.{column} IS NOT NULL AND d.{column} != ''":
+            return f"SUM(CASE WHEN d.{column}__num IS NOT NULL THEN 1 ELSE 0 END)"
+    return build_presence_expr(cond)
+
+
 def render_group_b_numeric_projection_sql(bundle: GroupBBundleSpec, reference_time: datetime) -> str:
     cutoff_literal = (reference_time.replace(tzinfo=None) if reference_time.tzinfo else reference_time)
     cutoff_literal = cutoff_literal.strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -233,7 +252,7 @@ def render_group_b_numeric_projection_sql(bundle: GroupBBundleSpec, reference_ti
     for tmpl in bundle.templates:
         select_parts.append(f"{group_b_projected_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
         if tmpl.extra_predicate:
-            select_parts.append(f"{group_b_projected_metric_expr(tmpl)} AS `{presence_column(tmpl.template_id)}`")
+            select_parts.append(f"{group_b_projected_presence_expr(tmpl)} AS `{presence_column(tmpl.template_id)}`")
     projected_columns = [
         "d.agent_type",
         "d.exact_id",

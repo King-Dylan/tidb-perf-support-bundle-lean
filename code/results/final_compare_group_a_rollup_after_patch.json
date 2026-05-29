@@ -1,0 +1,34 @@
+[
+  {
+    "bundle_id": "group_a_bundle_010",
+    "group": "A",
+    "window_days": 30,
+    "filter": "p.check_bank_routing_number = %s",
+    "preagg": false,
+    "chosen_event": "INV0046519149",
+    "chosen_kind": "hot_check_bank_routing_number",
+    "chosen_error": "(3024, 'Query execution was interrupted, maximum statement execution time exceeded')",
+    "baseline_ms": 450.9754170430824,
+    "optimized_ms": 112.72562498925254,
+    "speedup_pct": 75.00404218740738,
+    "best_variant": "optimized_distinct_pushdown",
+    "method": "SQL rewrite: pre-aggregate low-cardinality payment dimensions, then pivot CASE metrics from the compact rollup; Session tuning: optimized_distinct_pushdown",
+    "status": "optimized"
+  },
+  {
+    "bundle_id": "group_a_bundle_014",
+    "group": "A",
+    "window_days": 90,
+    "filter": "p.check_bank_routing_number = %s",
+    "preagg": false,
+    "chosen_event": "INV0019958147",
+    "chosen_kind": "hot_check_bank_routing_number",
+    "chosen_error": null,
+    "baseline_ms": 325.22987498668954,
+    "optimized_ms": 105.33429199131206,
+    "speedup_pct": 67.61235664601138,
+    "best_variant": "optimized_distinct_pushdown_hashagg_16_8",
+    "method": "SQL rewrite: pre-aggregate low-cardinality payment dimensions, then pivot CASE metrics from the compact rollup; Session tuning: optimized_distinct_pushdown_hashagg_16_8",
+    "status": "optimized"
+  }
+]
