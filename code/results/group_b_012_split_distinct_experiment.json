@@ -1,0 +1,23 @@
+[
+  {
+    "name": "current",
+    "same": true,
+    "best_ms": 509.5370410126634,
+    "best_variant": "optimized_hashagg_16_8",
+    "scan_sum": 172835
+  },
+  {
+    "name": "split_distinct",
+    "same": true,
+    "best_ms": 1658.7181250215508,
+    "best_variant": "optimized_distinct_pushdown_hashagg_16_8",
+    "scan_sum": 1037010
+  },
+  {
+    "name": "split_distinct_numeric",
+    "same": true,
+    "best_ms": 1761.6832500207238,
+    "best_variant": "optimized_distinct_pushdown_hashagg_16_8",
+    "scan_sum": 1037010
+  }
+]
