@@ -38,7 +38,7 @@ from lib.query_templates import load_query_templates
 
 DEFAULT_OUTPUT_DIR = Path(__file__).resolve().parent / "benchmark_results"
 DEFAULT_HINTED_GROUP_A_BUNDLES = {"group_a_bundle_002", "group_a_bundle_006"}
-GROUP_A_DIMENSION_ROLLUP_BUNDLES = {
+DEFAULT_GROUP_A_DIMENSION_ROLLUP_BUNDLES = {
     "group_a_bundle_010",
     "group_a_bundle_014",
 }
@@ -57,6 +57,24 @@ DEFAULT_NO_GROUP_BY_BUNDLES = {
     "group_c_bundle_021",
 }
 GROUP_FILTER_RE = re.compile(r"\b([pd]\.[a-z0-9_]+)\s*=\s*%s\b", re.I)
+
+
+def parse_bundle_set_env(env_name: str, default: set[str]) -> set[str]:
+    raw = os.getenv(env_name)
+    if raw is None:
+        return set(default)
+    stripped = raw.strip()
+    if stripped.lower() in {"", "0", "false", "none", "off"}:
+        return set()
+    if stripped.lower() in {"1", "true", "default", "auto"}:
+        return set(default)
+    return {item for item in re.split(r"[\s,]+", stripped) if item}
+
+
+GROUP_A_DIMENSION_ROLLUP_BUNDLES = parse_bundle_set_env(
+    "INTUIT_GROUP_A_DIMENSION_ROLLUP_BUNDLES",
+    DEFAULT_GROUP_A_DIMENSION_ROLLUP_BUNDLES,
+)
 
 
 def has_redundant_group_by(bundle_id: str, base_filter: str, group_by_fields: tuple[str, ...]) -> bool:

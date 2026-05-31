@@ -42,10 +42,20 @@ ROOT = Path(__file__).resolve().parent
 
 
 GROUP_A_ROLLUP_BUNDLES = {
+    "group_a_bundle_001",
+    "group_a_bundle_002",
+    "group_a_bundle_003",
+    "group_a_bundle_004",
+    "group_a_bundle_005",
     "group_a_bundle_006",
+    "group_a_bundle_007",
     "group_a_bundle_008",
+    "group_a_bundle_009",
     "group_a_bundle_010",
+    "group_a_bundle_011",
+    "group_a_bundle_012",
     "group_a_bundle_014",
+    "group_a_bundle_016",
 }
 
 
