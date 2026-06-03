@@ -440,6 +440,53 @@ def prod180_distinct_table(group: str) -> str:
     return f"group_{group.lower()}_180d_daily_distinct"
 
 
+def prod180_hourly_rollup_table(group: str) -> str:
+    return f"group_{group.lower()}_180d_hourly_rollup"
+
+
+def prod180_hourly_distinct_table(group: str) -> str:
+    return f"group_{group.lower()}_180d_hourly_distinct"
+
+
+def prod180_use_hourly_boundary() -> bool:
+    return os.getenv("INTUIT_PROD180_HOURLY_BOUNDARY", "0").lower() in {"1", "true", "yes", "on"}
+
+
+def prod180_hourly_boundary_groups() -> set[str]:
+    raw = os.getenv("INTUIT_PROD180_HOURLY_BOUNDARY_GROUPS", "C")
+    groups = {part.strip().upper() for part in raw.split(",") if part.strip()}
+    return groups or {"C"}
+
+
+def prod180_distinct_uses_hourly(group: str, bundle, distincts: list[DistinctMetric]) -> bool:
+    return (
+        prod180_use_hourly_boundary()
+        and group in prod180_hourly_boundary_groups()
+        and bool(distincts)
+        and not any(distinct.extra_predicate for distinct in distincts)
+    )
+
+
+def prod180_mixed_uses_hourly(group: str, bundle, rollups: list[RollupMetric], distincts: list[DistinctMetric]) -> bool:
+    return (
+        prod180_use_hourly_boundary()
+        and group in prod180_hourly_boundary_groups()
+        and group == "C"
+        and bool(rollups)
+        and bool(distincts)
+        and not any(metric.extra_predicate for metric in rollups)
+        and not any(distinct.extra_predicate for distinct in distincts)
+    )
+
+
+def prod180_group_c_mixed_uses_hourly(group: str, bundle, rollups: list[RollupMetric], distincts: list[DistinctMetric]) -> bool:
+    return prod180_mixed_uses_hourly(group, bundle, rollups, distincts)
+
+
+def prod180_group_c_distinct_uses_hourly(group: str, bundle, distincts: list[DistinctMetric]) -> bool:
+    return prod180_distinct_uses_hourly(group, bundle, distincts)
+
+
 def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -466,10 +513,16 @@ def prod180_cutoff_parts(reference_time: datetime) -> dict[str, Any]:
     cutoff = reference_time - timedelta(days=180)
     cutoff_day = cutoff.date()
     next_day = datetime.combine(cutoff_day + timedelta(days=1), datetime.min.time())
+    next_hour = cutoff.replace(minute=0, second=0, microsecond=0)
+    if next_hour < cutoff:
+        next_hour += timedelta(hours=1)
     return {
         "cutoff": cutoff,
         "cutoff_ts": cutoff.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "cutoff_day": cutoff_day.isoformat(),
+        "next_hour": next_hour,
+        "next_hour_ts": next_hour.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "next_hour_ms": int(next_hour.timestamp() * 1000),
         "next_day_ts": next_day.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "cutoff_ms": int(cutoff.timestamp() * 1000),
         "next_day_ms": int(next_day.timestamp() * 1000),
@@ -498,6 +551,75 @@ def raw_window_predicate(group: str, parts: dict[str, Any]) -> str:
     )
 
 
+def raw_tail_window_predicate(group: str, parts: dict[str, Any]) -> str:
+    if group == "A":
+        return f"p.event_date >= {parts['cutoff_ms']} AND p.event_date < {parts['next_hour_ms']}"
+    if group == "B":
+        return f"d.jms_timestamp >= '{parts['cutoff_ts']}' AND d.jms_timestamp < '{parts['next_hour_ts']}'"
+    return (
+        f"p.event_date >= {parts['cutoff_ms']} "
+        f"AND d.jms_timestamp >= '{parts['cutoff_ts']}' "
+        f"AND (p.event_date < {parts['next_hour_ms']} OR d.jms_timestamp < '{parts['next_hour_ts']}')"
+    )
+
+
+def prod180_hour_predicate(group: str, alias: str, parts: dict[str, Any]) -> str:
+    if group == "C":
+        return (
+            f"{alias}.p_event_hour >= '{parts['next_hour_ts']}' "
+            f"AND {alias}.d_event_hour >= '{parts['next_hour_ts']}' "
+            f"AND ({alias}.p_event_hour < '{parts['next_day_ts']}' "
+            f"OR {alias}.d_event_hour < '{parts['next_day_ts']}')"
+        )
+    return (
+        f"{alias}.event_hour >= '{parts['next_hour_ts']}' "
+        f"AND {alias}.event_hour < '{parts['next_day_ts']}'"
+    )
+
+
+def raw_group_c_hourly_tail_cte(raw_column_sql: str, from_sql: str, bundle, parts: dict[str, Any]) -> str:
+    base_predicates = raw_key_predicates(bundle) + raw_not_null_predicates("C")
+    d_tail = (
+        base_predicates
+        + [
+            f"p.event_date >= {parts['cutoff_ms']}",
+            f"d.jms_timestamp >= '{parts['cutoff_ts']}'",
+            f"d.jms_timestamp < '{parts['next_hour_ts']}'",
+        ]
+    )
+    p_tail = (
+        base_predicates
+        + [
+            f"p.event_date >= {parts['cutoff_ms']}",
+            f"p.event_date < {parts['next_hour_ms']}",
+            f"d.jms_timestamp >= '{parts['next_hour_ts']}'",
+        ]
+    )
+    return f"""raw_boundary AS (
+  SELECT
+    {raw_column_sql}
+  {from_sql}
+  WHERE {" AND ".join(d_tail)}
+  UNION ALL
+  SELECT
+    {raw_column_sql}
+  {from_sql}
+  WHERE {" AND ".join(p_tail)}
+)"""
+
+
+def raw_hourly_tail_cte(group: str, raw_column_sql: str, from_sql: str, bundle, parts: dict[str, Any]) -> str:
+    if group == "C":
+        return raw_group_c_hourly_tail_cte(raw_column_sql, from_sql, bundle, parts)
+    raw_where_parts = raw_key_predicates(bundle) + raw_not_null_predicates(group) + [raw_tail_window_predicate(group, parts)]
+    return f"""raw_boundary AS (
+  SELECT
+    {raw_column_sql}
+  {from_sql}
+  WHERE {" AND ".join(raw_where_parts)}
+)"""
+
+
 def raw_not_null_predicates(group: str) -> list[str]:
     predicates: list[str] = []
     if group in {"A", "C"}:
@@ -520,11 +642,13 @@ def render_prod180_distinct_only_query(group: str, bundle, distincts: list[Disti
 
     keys = key_fields(bundle)
     key_predicates = prod180_key_predicates("x", keys)
+    hourly_key_predicates = prod180_key_predicates("hx", keys)
     _, _, from_sql = source_parts(group)
+    use_hourly = prod180_distinct_uses_hourly(group, bundle, distincts)
     raw_where_parts = (
         raw_key_predicates(bundle)
         + raw_not_null_predicates(group)
-        + [raw_window_predicate(group, cutoff_parts)]
+        + [raw_tail_window_predicate(group, cutoff_parts) if use_hourly else raw_window_predicate(group, cutoff_parts)]
     )
     raw_columns: list[str] = []
     raw_unions: list[str] = []
@@ -544,21 +668,36 @@ def render_prod180_distinct_only_query(group: str, bundle, distincts: list[Disti
         )
 
     raw_column_sql = ",\n    ".join(raw_columns)
-    raw_union_sql = "\n  UNION ALL\n  ".join(raw_unions)
-    final_select_sql = ",\n  ".join(final_selects)
-    return f"""
-WITH raw_boundary AS (
+    if use_hourly:
+        raw_boundary_cte = raw_hourly_tail_cte(group, raw_column_sql, from_sql, bundle, cutoff_parts)
+    else:
+        raw_boundary_cte = f"""raw_boundary AS (
   SELECT
     {raw_column_sql}
   {from_sql}
   WHERE {" AND ".join(raw_where_parts)}
-), distinct_values AS (
+)"""
+    hourly_distinct_union = ""
+    if use_hourly:
+        hourly_distinct_union = f"""
+  UNION ALL
+  SELECT hx.template_id, hx.distinct_value
+  FROM {quote_ident(prod180_hourly_distinct_table(group))} hx
+  WHERE hx.bundle_id = {sql_literal(bundle.bundle_id)}
+    AND hx.template_id IN ({template_ids})
+    AND {" AND ".join(hourly_key_predicates)}
+    AND {prod180_hour_predicate(group, "hx", cutoff_parts)}"""
+    raw_union_sql = "\n  UNION ALL\n  ".join(raw_unions)
+    final_select_sql = ",\n  ".join(final_selects)
+    return f"""
+WITH {raw_boundary_cte}, distinct_values AS (
   SELECT x.template_id, x.distinct_value
   FROM {quote_ident(prod180_distinct_table(group))} x
   WHERE x.bundle_id = {sql_literal(bundle.bundle_id)}
     AND x.template_id IN ({template_ids})
     AND {" AND ".join(key_predicates)}
     AND {prod180_full_day_predicate(group, "x", cutoff_parts["cutoff_day"])}
+  {hourly_distinct_union}
   UNION ALL
   {raw_union_sql}
 )
@@ -584,11 +723,13 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
 
     keys = key_fields(bundle)
     key_predicates = prod180_key_predicates("x", keys)
+    hourly_key_predicates = prod180_key_predicates("hx", keys)
     _, _, from_sql = source_parts(group)
+    use_hourly = prod180_use_hourly_boundary() and group in prod180_hourly_boundary_groups()
     raw_where_parts = (
         raw_key_predicates(bundle)
         + raw_not_null_predicates(group)
-        + [raw_window_predicate(group, cutoff_parts)]
+        + [raw_tail_window_predicate(group, cutoff_parts) if use_hourly else raw_window_predicate(group, cutoff_parts)]
     )
 
     raw_columns: list[str] = []
@@ -608,13 +749,29 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
             f"THEN distinct_value END) AS {quote_ident(distinct.output_column)}"
         )
 
-    ctes: list[str] = [
-        f"""raw_boundary AS (
+    raw_boundary_column_sql = ",\n    ".join(raw_columns)
+    if use_hourly:
+        raw_boundary_cte = raw_hourly_tail_cte(group, raw_boundary_column_sql, from_sql, bundle, cutoff_parts)
+    else:
+        raw_boundary_cte = f"""raw_boundary AS (
   SELECT
-    {",\n    ".join(raw_columns)}
+    {raw_boundary_column_sql}
   {from_sql}
   WHERE {" AND ".join(raw_where_parts)}
-)""",
+)"""
+    hourly_distinct_union = ""
+    if use_hourly:
+        hourly_distinct_union = f"""
+  UNION ALL
+  SELECT hx.template_id, hx.distinct_value
+  FROM {quote_ident(prod180_hourly_distinct_table(group))} hx
+  WHERE hx.bundle_id = {sql_literal(bundle.bundle_id)}
+    AND hx.template_id IN ({template_ids})
+    AND {" AND ".join(hourly_key_predicates)}
+    AND {prod180_hour_predicate(group, "hx", cutoff_parts)}"""
+
+    ctes: list[str] = [
+        raw_boundary_cte,
         f"""distinct_values AS (
   SELECT x.template_id, x.distinct_value
   FROM {quote_ident(prod180_distinct_table(group))} x
@@ -622,6 +779,7 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
     AND x.template_id IN ({template_ids})
     AND {" AND ".join(key_predicates)}
     AND {prod180_full_day_predicate(group, "x", cutoff_parts["cutoff_day"])}
+  {hourly_distinct_union}
   UNION ALL
   {"\n  UNION ALL\n  ".join(raw_unions)}
 )""",
@@ -637,24 +795,45 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
         cte_name = f"filtered_{index}"
         filtered_names[distinct.template_id] = cte_name
         predicates = prod180_key_predicates("x", keys)
+        hourly_predicates = prod180_key_predicates("hx", keys)
         raw_distinct_where_parts = (
             raw_key_predicates(bundle)
             + [f"{distinct.distinct_expr} IS NOT NULL"]
             + raw_not_null_predicates(group)
-            + [raw_window_predicate(group, cutoff_parts)]
+            + [raw_tail_window_predicate(group, cutoff_parts) if use_hourly else raw_window_predicate(group, cutoff_parts)]
         )
         if distinct.extra_predicate:
             raw_distinct_where_parts.append(f"({distinct.extra_predicate})")
 
         presence_predicates = prod180_key_predicates("x", keys)
+        hourly_presence_predicates = prod180_key_predicates("h", keys)
         presence_col = presence_column(distinct.template_id)
         raw_presence_where_parts = (
             raw_key_predicates(bundle)
             + raw_not_null_predicates(group)
-            + [raw_window_predicate(group, cutoff_parts)]
+            + [raw_tail_window_predicate(group, cutoff_parts) if use_hourly else raw_window_predicate(group, cutoff_parts)]
         )
         if distinct.extra_predicate:
             raw_presence_where_parts.append(f"({distinct.extra_predicate})")
+
+        filtered_hourly_distinct_union = ""
+        filtered_hourly_presence_union = ""
+        if use_hourly:
+            filtered_hourly_distinct_union = f"""
+      UNION ALL
+      SELECT hx.distinct_value
+      FROM {quote_ident(prod180_hourly_distinct_table(group))} hx
+      WHERE hx.bundle_id = {sql_literal(bundle.bundle_id)}
+        AND hx.template_id = {sql_literal(distinct.template_id)}
+        AND {" AND ".join(hourly_predicates)}
+        AND {prod180_hour_predicate(group, "hx", cutoff_parts)}"""
+            filtered_hourly_presence_union = f"""
+      UNION ALL
+      SELECT h.{quote_ident(presence_col)} AS presence_count
+      FROM {quote_ident(prod180_hourly_rollup_table(group))} h
+      WHERE h.bundle_id = {sql_literal(bundle.bundle_id)}
+        AND {" AND ".join(hourly_presence_predicates)}
+        AND {prod180_hour_predicate(group, "h", cutoff_parts)}"""
 
         ctes.append(
             f"""{cte_name} AS (
@@ -666,6 +845,7 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
         AND x.template_id = {sql_literal(distinct.template_id)}
         AND {" AND ".join(predicates)}
         AND {prod180_full_day_predicate(group, "x", cutoff_parts["cutoff_day"])}
+      {filtered_hourly_distinct_union}
       UNION ALL
       SELECT CAST({distinct.distinct_expr} AS CHAR(256)) AS distinct_value
       {from_sql}
@@ -677,6 +857,7 @@ def render_prod180_distinct_filtered_query(group: str, bundle, distincts: list[D
       WHERE x.bundle_id = {sql_literal(bundle.bundle_id)}
         AND {" AND ".join(presence_predicates)}
         AND {prod180_full_day_predicate(group, "x", cutoff_parts["cutoff_day"])}
+      {filtered_hourly_presence_union}
       UNION ALL
       SELECT COUNT(*) AS presence_count
       {from_sql}
@@ -741,10 +922,11 @@ def render_prod180_mixed_unfiltered_query(
 
     keys = key_fields(bundle)
     _, _, from_sql = source_parts(group)
+    use_hourly = prod180_mixed_uses_hourly(group, bundle, rollups, distincts)
     raw_where_parts = (
         raw_key_predicates(bundle)
         + raw_not_null_predicates(group)
-        + [raw_window_predicate(group, cutoff_parts)]
+        + [raw_tail_window_predicate(group, cutoff_parts) if use_hourly else raw_window_predicate(group, cutoff_parts)]
     )
     raw_boundary_columns = ["p.amount AS raw_p_amount"]
     raw_unions: list[str] = []
@@ -777,22 +959,48 @@ def render_prod180_mixed_unfiltered_query(
     template_ids = ", ".join(sql_literal(distinct.template_id) for distinct in distincts)
     key_predicates = prod180_key_predicates("x", keys)
     rollup_key_predicates = prod180_key_predicates("r", keys)
+    hourly_key_predicates = prod180_key_predicates("h", keys)
+    hourly_distinct_key_predicates = prod180_key_predicates("hx", keys)
     final_selects = [f"rollup_final.{quote_ident(column)}" for column in rollup_output_columns] + [
         f"distinct_counts.{quote_ident(distinct.output_column)}" for distinct in distincts
     ]
-
-    return f"""
-WITH raw_boundary AS (
+    raw_boundary_column_sql = ",\n    ".join(raw_boundary_columns)
+    if use_hourly:
+        raw_boundary_cte = raw_hourly_tail_cte(group, raw_boundary_column_sql, from_sql, bundle, cutoff_parts)
+    else:
+        raw_boundary_cte = f"""raw_boundary AS (
   SELECT
-    {",\n    ".join(raw_boundary_columns)}
+    {raw_boundary_column_sql}
   {from_sql}
   WHERE {" AND ".join(raw_where_parts)}
-), rollup_rows AS (
+)"""
+    hourly_rollup_union = ""
+    hourly_distinct_union = ""
+    if use_hourly:
+        hourly_rollup_union = f"""
+  UNION ALL
+  SELECT {", ".join(helper_rollup_selects)}
+  FROM {quote_ident(prod180_hourly_rollup_table(group))} h
+  WHERE h.bundle_id = {sql_literal(bundle.bundle_id)}
+    AND {" AND ".join(hourly_key_predicates)}
+    AND {prod180_hour_predicate(group, "h", cutoff_parts)}"""
+        hourly_distinct_union = f"""
+  UNION ALL
+  SELECT hx.template_id, hx.distinct_value
+  FROM {quote_ident(prod180_hourly_distinct_table(group))} hx
+  WHERE hx.bundle_id = {sql_literal(bundle.bundle_id)}
+    AND hx.template_id IN ({template_ids})
+    AND {" AND ".join(hourly_distinct_key_predicates)}
+    AND {prod180_hour_predicate(group, "hx", cutoff_parts)}"""
+
+    return f"""
+WITH {raw_boundary_cte}, rollup_rows AS (
   SELECT {", ".join(helper_rollup_selects)}
   FROM {quote_ident(prod180_rollup_table(group))} r
   WHERE r.bundle_id = {sql_literal(bundle.bundle_id)}
     AND {" AND ".join(rollup_key_predicates)}
     AND {prod180_full_day_predicate(group, "r", cutoff_parts["cutoff_day"])}
+  {hourly_rollup_union}
   UNION ALL
   SELECT {", ".join(item for item in raw_rollup_selects if item)}
   FROM raw_boundary
@@ -808,6 +1016,7 @@ WITH raw_boundary AS (
     AND x.template_id IN ({template_ids})
     AND {" AND ".join(key_predicates)}
     AND {prod180_full_day_predicate(group, "x", cutoff_parts["cutoff_day"])}
+  {hourly_distinct_union}
   UNION ALL
   {"\n  UNION ALL\n  ".join(raw_unions)}
 ), distinct_counts AS (

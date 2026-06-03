@@ -20,13 +20,11 @@ PROD180_PREAGG_BUNDLES = {
 }
 
 
-EXACT_SERVING_BUNDLES = {
-    "group_b_bundle_018",
-    "group_b_bundle_019",
-    "group_b_bundle_020",
-    "group_c_bundle_023",
-    "group_c_bundle_025",
-}
+EXACT_SERVING_BUNDLES = (
+    {f"group_a_bundle_{index:03d}" for index in range(1, 21)}
+    | {f"group_b_bundle_{index:03d}" for index in range(1, 21)}
+    | {f"group_c_bundle_{index:03d}" for index in range(1, 26)}
+)
 
 
 OPTIMIZED_INDEXES = {

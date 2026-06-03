@@ -79,7 +79,12 @@ GROUP_A_DIMENSION_ROLLUP_BUNDLES = parse_bundle_set_env(
     DEFAULT_GROUP_A_DIMENSION_ROLLUP_BUNDLES,
 )
 
-DEFAULT_GROUP_C_INNER_JOIN_BUNDLES: set[str] = set()
+DEFAULT_GROUP_C_INNER_JOIN_BUNDLES: set[str] = {
+    "group_c_bundle_016",
+    "group_c_bundle_017",
+    "group_c_bundle_018",
+    "group_c_bundle_021",
+}
 DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES: set[str] = set()
 GROUP_C_INNER_JOIN_BUNDLES = parse_bundle_set_env(
     "INTUIT_GROUP_C_INNER_JOIN_BUNDLES",
@@ -89,6 +94,12 @@ GROUP_C_DEVICE_FIRST_JOIN_BUNDLES = parse_bundle_set_env(
     "INTUIT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES",
     DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES,
 )
+RUNTIME_WINDOW_UPPER_BOUND = os.getenv("INTUIT_RUNTIME_WINDOW_UPPER_BOUND", "0").strip().lower() in {
+    "1",
+    "true",
+    "on",
+    "yes",
+}
 
 
 def has_redundant_group_by(bundle_id: str, base_filter: str, group_by_fields: tuple[str, ...]) -> bool:
@@ -189,12 +200,16 @@ class GroupABundleSpec:
             if tmpl.extra_predicate:
                 select_parts.append(f"{build_presence_expr(tmpl.extra_predicate)} AS `{presence_column(tmpl.template_id)}`")
         cutoff_ms = int((reference_time.timestamp() - (self.window_days * 86400)) * 1000)
+        reference_ms = int(reference_time.timestamp() * 1000)
+        window_predicate = f"p.event_date >= {cutoff_ms}"
+        if RUNTIME_WINDOW_UPPER_BOUND:
+            window_predicate += f" AND p.event_date < {reference_ms}"
         select_prefix = "SELECT /*+ READ_FROM_STORAGE(TIFLASH[p]) */" if hinted else "SELECT"
         sql = (
             f"{select_prefix}\n  "
             + ",\n  ".join(select_parts)
             + "\nFROM pmt_txn_fact p\nWHERE "
-            + f"{self.base_filter} AND p.event_date >= {cutoff_ms}"
+            + f"{self.base_filter} AND {window_predicate}"
         )
         if has_redundant_group_by(self.bundle_id, self.base_filter, self.group_by_fields):
             return sql + "\nHAVING COUNT(*) > 0;"
@@ -295,6 +310,10 @@ def render_group_a_dimension_rollup_sql(bundle: GroupABundleSpec, reference_time
     if not rollup_columns:
         raise ValueError(f"No dimension rollup columns detected for {bundle.bundle_id}")
     cutoff_ms = int((reference_time.timestamp() - (bundle.window_days * 86400)) * 1000)
+    reference_ms = int(reference_time.timestamp() * 1000)
+    window_predicate = f"p.event_date >= {cutoff_ms}"
+    if RUNTIME_WINDOW_UPPER_BOUND:
+        window_predicate += f" AND p.event_date < {reference_ms}"
     select_parts: list[str] = []
     for tmpl in bundle.templates:
         select_parts.append(f"{group_a_rollup_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
@@ -309,7 +328,7 @@ def render_group_a_dimension_rollup_sql(bundle: GroupABundleSpec, reference_time
         + f"  SELECT {dimension_select}, COUNT(*) AS row_count, SUM(p.amount) AS amount_sum, "
         + "MIN(p.amount) AS amount_min, MAX(p.amount) AS amount_max\n"
         + "  FROM pmt_txn_fact p\nWHERE "
-        + f"{bundle.base_filter} AND p.event_date >= {cutoff_ms}\n"
+        + f"{bundle.base_filter} AND {window_predicate}\n"
         + f"  GROUP BY {dimension_group_by}\n"
         + ") b\n"
         + "HAVING SUM(b.row_count) > 0;"
@@ -471,11 +490,15 @@ class GroupBBundleSpec:
             if tmpl.extra_predicate:
                 select_parts.append(f"{build_presence_expr(tmpl.extra_predicate)} AS `{presence_column(tmpl.template_id)}`")
         cutoff_literal = (reference_time - timedelta(days=self.window_days)).strftime("%Y-%m-%d %H:%M:%S.%f")
+        reference_literal = reference_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+        window_predicate = f"d.jms_timestamp >= '{cutoff_literal}'"
+        if RUNTIME_WINDOW_UPPER_BOUND:
+            window_predicate += f" AND d.jms_timestamp < '{reference_literal}'"
         sql = (
             "SELECT\n  "
             + ",\n  ".join(select_parts)
             + "\nFROM deviceprofile_fact d\nWHERE "
-            + f"{self.base_filter} AND d.jms_timestamp >= '{cutoff_literal}'"
+            + f"{self.base_filter} AND {window_predicate}"
         )
         if has_redundant_group_by(self.bundle_id, self.base_filter, self.group_by_fields):
             return sql + "\nHAVING COUNT(*) > 0;"
@@ -607,7 +630,14 @@ class GroupCBundleSpec:
         if self.bundle_id in GROUP_C_DEVICE_FIRST_JOIN_BUNDLES:
             return render_group_c_device_first_join_sql(self, reference_time, hinted=hinted)
         cutoff_ms = int(reference_time.timestamp() * 1000) - (self.window_days * 86400 * 1000)
+        reference_ms = int(reference_time.timestamp() * 1000)
         cutoff_dt = datetime.fromtimestamp(cutoff_ms / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")
+        reference_dt = reference_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+        p_window_predicate = f"p.event_date >= {cutoff_ms}"
+        d_window_predicate = f"d.jms_timestamp >= '{cutoff_dt}'"
+        if RUNTIME_WINDOW_UPPER_BOUND:
+            p_window_predicate += f" AND p.event_date < {reference_ms}"
+            d_window_predicate += f" AND d.jms_timestamp < '{reference_dt}'"
         select_parts: list[str] = []
         for tmpl in self.templates:
             select_parts.append(f"{build_group_c_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
@@ -621,8 +651,8 @@ class GroupCBundleSpec:
             + ",\n  ".join(select_parts)
             + f"\nFROM pmt_txn_fact p\n{join_keyword} deviceprofile_fact d"
             + "\n  ON p.parsed_interaction_id = d.interaction_id"
-            + f"\nWHERE {self.base_filter} AND p.event_date >= {cutoff_ms}"
-            + f"\n  AND d.jms_timestamp >= '{cutoff_dt}'"
+            + f"\nWHERE {self.base_filter} AND {p_window_predicate}"
+            + f"\n  AND {d_window_predicate}"
         )
         if has_redundant_group_by(self.bundle_id, self.base_filter, self.group_by_fields):
             return sql + "\nHAVING COUNT(*) > 0;"
@@ -675,7 +705,14 @@ def build_presence_expr(condition: str) -> str:
 
 def render_group_c_device_first_join_sql(bundle: GroupCBundleSpec, reference_time: datetime, hinted: bool = False) -> str:
     cutoff_ms = int(reference_time.timestamp() * 1000) - (bundle.window_days * 86400 * 1000)
+    reference_ms = int(reference_time.timestamp() * 1000)
     cutoff_dt = datetime.fromtimestamp(cutoff_ms / 1000).strftime("%Y-%m-%d %H:%M:%S.%f")
+    reference_dt = reference_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+    p_window_predicate = f"p.event_date >= {cutoff_ms}"
+    d_window_predicate = f"d.jms_timestamp >= '{cutoff_dt}'"
+    if RUNTIME_WINDOW_UPPER_BOUND:
+        p_window_predicate += f" AND p.event_date < {reference_ms}"
+        d_window_predicate += f" AND d.jms_timestamp < '{reference_dt}'"
     select_parts: list[str] = []
     for tmpl in bundle.templates:
         select_parts.append(f"{build_group_c_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
@@ -688,8 +725,8 @@ def render_group_c_device_first_join_sql(bundle: GroupCBundleSpec, reference_tim
         + ",\n  ".join(select_parts)
         + "\nFROM deviceprofile_fact d\nJOIN pmt_txn_fact p"
         + "\n  ON p.parsed_interaction_id = d.interaction_id"
-        + f"\nWHERE {bundle.base_filter} AND d.jms_timestamp >= '{cutoff_dt}'"
-        + f"\n  AND p.event_date >= {cutoff_ms}"
+        + f"\nWHERE {bundle.base_filter} AND {d_window_predicate}"
+        + f"\n  AND {p_window_predicate}"
     )
     if has_redundant_group_by(bundle.bundle_id, bundle.base_filter, bundle.group_by_fields):
         return sql + "\nHAVING COUNT(*) > 0;"

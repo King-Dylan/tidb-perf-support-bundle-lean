@@ -11,6 +11,10 @@
 *.py[cod]
 *$py.class
 
+# Local Go build outputs.
+code/go-loadgen/go-loadgen
+code/go-loadgen/go-loadgen-linux-amd64
+
 # Local run noise.
 **/logs/
 *.log
