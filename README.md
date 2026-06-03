@@ -199,20 +199,40 @@ validation and detailed per-bundle diagnostics, but the Go path is the current
 load-test path because it removes Python/GIL/future scheduling from the hot
 path.
 
-Current official mode for fleet tests:
+Recommended customer-facing mode for future fleet tests:
 
-- `--execution-mode event-fanout`
-- 1 event submits all 65 bundle SQLs concurrently.
-- The Go process uses a prewarmed `database/sql` pool with long-lived TiDB
+- `--execution-mode conn-fanout`
+- 1 event submits all 65 bundle SQLs concurrently, but each bundle execution
+  checks out one prewarmed connection slot instead of relying on lazy
+  `database/sql` pool assignment inside `QueryContext`.
+- The Go process uses fixed connection-owner slots with long-lived TiDB
   connections.
 - `MaxOpenConns` and `MaxIdleConns` are both set from `--connections`.
-- `--prepare-all` prepares all 65 SQL templates before the timed window.
+- `--prepare-all` prepares all 65 SQL templates on every physical connection
+  before the timed window.
 - `--target-event-eps` plus `--duration` creates a steady-rate test instead of
   one burst batch.
+- `--omit-event-results=false` should be used for a final customer-facing run
+  so the raw event-level `full_65_of_65`, `score_ready_60_of_65`, and
+  `bundles_by_350_ms` / `bundles_by_500_ms` records are preserved.
 - `--max-execution-time-ms 0`, `--read-timeout 0s`, and `--query-timeout 0s`
   are used for SLA validation. Do not kill tail SQLs during the main run; use
   the output summaries to calculate 350ms/500ms SLA. Cutoff tests are useful for
   fallback experiments but they can create `Failed Query OPM` noise.
+- The output splits client and database path timing into `task_queue`,
+  `prepare_runtime`, `db_exec`, `result_drain`, and `query_runtime`
+  (`db_exec + result_drain`). This keeps app-side waiting separate from
+  TiDB-facing execution timing.
+- The output also reports SQL-only event latency:
+  `sql_only_full_65_of_65` is the max SQL runtime across the successful 65
+  bundle queries for an event, and `sql_only_score_ready_60_of_65` is the 60th
+  fastest successful SQL runtime. Use these when the target is database SQL
+  execution latency rather than app/client fan-out wall time.
+- Every run prints a `CUSTOMER SQL-ONLY EVENT REPORT` and stores the same data
+  under `customer_report` in the result JSON. This report is the default
+  customer-facing view: SLA counts, latency histograms, average bundles returned
+  by 350ms/500ms, workload realism, binding skew, and tail-driver bundles are
+  all calculated from SQL-only bundle runtimes.
 
 ### 1. Generate a Static Workload
 
@@ -333,7 +353,7 @@ HOSTS
 Run from the repo root:
 
 ```bash
-prefix="go_fleet16_8host_eventfanout_1000eps_3000c_600s_no_maxexec_$(date +%s)"
+prefix="go_fleet16_8host_connfanout_1000eps_3000c_600s_no_maxexec_$(date +%s)"
 
 python3 code/run_go_loadgen_fleet.py \
   --hosts "$(paste -sd, /tmp/codex_go_hosts8.txt)" \
@@ -348,11 +368,12 @@ python3 code/run_go_loadgen_fleet.py \
   --read-timeout 0s \
   --query-timeout 0s \
   --max-execution-time-ms 0 \
-  --execution-mode event-fanout \
+  --execution-mode conn-fanout \
   --target-event-eps 1000 \
   --duration 600s \
   --max-pending-events 3000 \
   --start-delay-seconds 30 \
+  --omit-event-results=false \
   --prepare-all \
   --output-prefix "$prefix" | tee "results/${prefix}.log"
 ```
@@ -375,8 +396,14 @@ The Go output prints and stores these key summaries:
   before the timed run starts.
 - `completed_eps`: events completed, including events with query errors.
 - `full65_eps`: events where all 65 bundle SQLs succeeded.
-- Primary SLA EPS: events where `full_65_of_65 <= 350ms`.
-- Fallback SLA EPS: events where `score_ready_60_of_65 <= 500ms`.
+- Customer-facing primary/fallback SLA: use `customer_report.sql_only_sla`.
+  These numbers are based on `sql_only_full_65_of_65` and
+  `sql_only_score_ready_60_of_65`, excluding client queueing, prepare,
+  scheduling, and fan-in wall time from the event latency calculation.
+- App-side primary/fallback diagnostics: `full_65_of_65` and
+  `score_ready_60_of_65` are still emitted, but they are wall-clock event
+  fan-out/fan-in timings and should not be mixed with TiDB-side SQL execution
+  latency.
 - `event_completion`: wall time from event submission until all 65 bundle tasks
   finish.
 - `full_65_of_65`: completion time only for events where every bundle succeeded.
@@ -388,6 +415,10 @@ The Go output prints and stores these key summaries:
   picked up the SQL.  If this is high while `query_runtime` is low, add client
   workers/connections.  If `query_runtime` rises under load, the bottleneck is no
   longer Python/client scheduling.
+- `customer_report.test_realism.binding_fields` is populated only when the
+  workload JSON includes event bindings. Regenerate the workload with the
+  current `generate_go_workload.py` before a final run to include binding
+  distinct/max-repeat statistics.
 
 ## Client-Side Diagnostics
 

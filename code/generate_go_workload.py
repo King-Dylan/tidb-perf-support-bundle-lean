@@ -64,6 +64,10 @@ def json_param(value: Any) -> Any:
     return str(value)
 
 
+def json_bindings(bindings: dict[str, Any]) -> dict[str, Any]:
+    return {key: json_param(value) for key, value in sorted(bindings.items())}
+
+
 def is_runtime_bundle(bundle: Any, preagg_bundles: set[str], serving_bundles: set[str]) -> bool:
     return bundle.bundle_id not in preagg_bundles and bundle.bundle_id not in serving_bundles
 
@@ -240,6 +244,8 @@ def main() -> None:
                 "event": event.get("invoice_number"),
                 "kind": event.get("kind"),
                 "hot_field": event.get("hot_field"),
+                "reference_time": event.get("reference_time"),
+                "bindings": json_bindings(event.get("bindings", {})),
                 "bundles": bundle_runs,
             }
         )
