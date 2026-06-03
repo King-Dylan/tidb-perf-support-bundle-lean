@@ -65,6 +65,32 @@ issues 65 bundled SQLs for every event.
 
 Formula: `bundle_sql_per_sec = events/sec * 65`.
 
+## Reference Fleet Snapshot
+
+The database-side screenshot below is from the steady phase of the 8-client Go
+fleet test. The run shape was:
+
+- 8 EC2 client instances
+- 2 Go load-generator app processes per EC2 instance, 16 app processes total
+- 3000 requested database connections total; the runner rounded this to about
+  188 connections per app process, or roughly 3008 pool slots total
+- target `1000 events/sec`, with `65` independent bundle SQLs per event
+- target SQL command shape: about `65,000` bundle SQL executions/sec
+- long-lived connections with prepared statements, using `--execution-mode
+  event-fanout`, `--prepare-all`, and `--max-execution-time-ms 0`
+
+The screenshot is a database-side reference for SQL-command throughput,
+TiDB-side query duration, and cluster resource headroom during that run.
+
+![Grafana dashboard during 8 EC2 / 16 app / 3000-connection Go fleet run](docs/images/grafana_3000conn_steady.jpeg)
+
+Metric scope matters:
+
+- Grafana is the database-side view. Use it to confirm SQL-command throughput,
+  TiDB-side query duration, and cluster resource headroom.
+- Go loadgen JSON is the app/event fan-in view. Use `full_65_of_65` and
+  `score_ready_60_of_65` to calculate event-level primary/fallback SLA.
+
 ## Setup
 
 ```bash
@@ -362,21 +388,6 @@ The Go output prints and stores these key summaries:
   picked up the SQL.  If this is high while `query_runtime` is low, add client
   workers/connections.  If `query_runtime` rises under load, the bottleneck is no
   longer Python/client scheduling.
-
-### 7. Grafana Steady-State Snapshot
-
-The screenshot below is a database-side example from a steady fleet run. It is
-useful for checking whether TiDB sees the intended SQL command shape and whether
-database-side query duration is inside the target range.
-
-![Grafana dashboard during Go fleet run](docs/images/grafana_3000conn_steady.jpeg)
-
-Metric scope matters:
-
-- Grafana is the database-side view. Use it to confirm SQL-command throughput,
-  TiDB-side query duration, and cluster resource headroom.
-- Go loadgen JSON is the app/event fan-in view. Use `full_65_of_65` and
-  `score_ready_60_of_65` to calculate event-level primary/fallback SLA.
 
 ## Client-Side Diagnostics
 
