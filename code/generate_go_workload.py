@@ -9,6 +9,7 @@ template rendering, so this script materializes that boundary into JSON once.
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 import json
 import os
 import sys
@@ -35,7 +36,52 @@ def all_bundle_pairs() -> list[tuple[Any, str]]:
     )
 
 
-def select_events(payload: dict[str, Any], event_count: int, hot_event_pct: float) -> list[dict[str, Any]]:
+def source_event_key(event: dict[str, Any], fallback_idx: int) -> str:
+    return str(event.get("invoice_number") or f"source_index:{fallback_idx}")
+
+
+def full_binding_key(event: dict[str, Any]) -> tuple[tuple[str, Any], ...]:
+    bindings = json_bindings(event.get("bindings", {}))
+    return tuple(sorted(bindings.items()))
+
+
+def binding_field_stats(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    values: dict[str, Counter[str]] = defaultdict(Counter)
+    for event in events:
+        for field, value in json_bindings(event.get("bindings", {})).items():
+            values[field][str(value)] += 1
+    stats: dict[str, dict[str, Any]] = {}
+    for field, counter in sorted(values.items()):
+        max_value, max_repeat = counter.most_common(1)[0]
+        stats[field] = {
+            "distinct": len(counter),
+            "max_repeat": max_repeat,
+            "max_value": max_value,
+        }
+    return stats
+
+
+def workload_event_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+    unique_source_events = {source_event_key(event, idx) for idx, event in enumerate(events)}
+    unique_binding_sets = {full_binding_key(event) for event in events}
+    event_mix = Counter(str(event.get("kind") or "<empty>") for event in events)
+    hot_field_mix = Counter(str(event.get("hot_field") or "<empty>") for event in events)
+    return {
+        "event_rows": len(events),
+        "unique_source_events": len(unique_source_events),
+        "unique_binding_sets": len(unique_binding_sets),
+        "event_mix": dict(sorted(event_mix.items())),
+        "hot_field_mix": dict(sorted(hot_field_mix.items())),
+        "binding_fields": binding_field_stats(events),
+    }
+
+
+def select_events(
+    payload: dict[str, Any],
+    event_count: int,
+    hot_event_pct: float,
+    unique_events_required: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     normal = list(payload.get("sampled_normal_events", []))
     hot = list(payload.get("sampled_hot_events", []))
     if not normal and not hot:
@@ -45,15 +91,48 @@ def select_events(payload: dict[str, Any], event_count: int, hot_event_pct: floa
     normal_idx = 0
     hot_idx = 0
     hot_stride = int(round(1 / hot_event_pct)) if hot_event_pct > 0 else 0
+    normal_reused = False
+    hot_reused = False
+    expected_hot = 0
+    expected_normal = 0
     for idx in range(event_count):
         use_hot = bool(hot) and hot_stride > 0 and idx % hot_stride == 0
         if use_hot:
+            expected_hot += 1
+            if hot_idx >= len(hot):
+                if unique_events_required:
+                    raise ValueError(
+                        "not enough hot sampled events for unique-event workload: "
+                        f"need {expected_hot}, available {len(hot)}"
+                    )
+                hot_reused = True
             selected.append(hot[hot_idx % len(hot)])
             hot_idx += 1
         else:
+            expected_normal += 1
+            if normal_idx >= len(normal):
+                if unique_events_required:
+                    raise ValueError(
+                        "not enough normal sampled events for unique-event workload: "
+                        f"need {expected_normal}, available {len(normal)}"
+                    )
+                normal_reused = True
             selected.append(normal[normal_idx % len(normal)])
             normal_idx += 1
-    return selected
+    metadata = {
+        "requested_events": event_count,
+        "hot_event_pct": hot_event_pct,
+        "hot_stride": hot_stride,
+        "unique_events_required": unique_events_required,
+        "source_normal_events": len(normal),
+        "source_hot_events": len(hot),
+        "selected_normal_events": expected_normal,
+        "selected_hot_events": expected_hot,
+        "normal_source_reused": normal_reused,
+        "hot_source_reused": hot_reused,
+        "source_reused": normal_reused or hot_reused,
+    }
+    return selected, metadata
 
 
 def json_param(value: Any) -> Any:
@@ -135,6 +214,11 @@ def main() -> None:
     ap.add_argument("--output", required=True, help="Output workload JSON path.")
     ap.add_argument("--events", type=int, default=1000)
     ap.add_argument("--hot-event-pct", type=float, default=0.05)
+    ap.add_argument(
+        "--unique-events-required",
+        action="store_true",
+        help="Fail instead of cycling sampled_normal_events/sampled_hot_events when --events exceeds the available source sample.",
+    )
     ap.add_argument("--preagg-mode", choices=["serving", "hybrid", "runtime-only"], default="serving")
     ap.add_argument("--preagg-layout", choices=["prod180", "bundle"], default=os.getenv("PREAGG_LAYOUT", "prod180"))
     ap.add_argument("--serving-as-of-grain", choices=["day", "timestamp"], default=os.getenv("INTUIT_SERVING_AS_OF_GRAIN", "day"))
@@ -156,7 +240,7 @@ def main() -> None:
 
     source_path = ROOT / args.reuse_events_json
     payload = json.loads(source_path.read_text(encoding="utf-8"))
-    events = select_events(payload, args.events, args.hot_event_pct)
+    events, selection_metadata = select_events(payload, args.events, args.hot_event_pct, args.unique_events_required)
 
     bundle_pairs = all_bundle_pairs()
     excluded = set(args.exclude_bundle)
@@ -261,13 +345,20 @@ def main() -> None:
         "runtime_window_params": args.runtime_window_params,
         "runtime_window_param_bundle_count": len(runtime_window_param_bundles),
         "tiflash_mpp_bundles": sorted(tiflash_mpp_bundles),
+        "event_selection": selection_metadata,
+        "workload_stats": workload_event_stats(events),
         "templates": templates,
         "events": workload_events,
     }
     output_path = ROOT / args.output
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
-    print(f"Wrote {output_path} events={len(workload_events)} bundles={len(templates)}")
+    stats = output["workload_stats"]
+    print(
+        f"Wrote {output_path} events={len(workload_events)} bundles={len(templates)} "
+        f"unique_source_events={stats['unique_source_events']} unique_binding_sets={stats['unique_binding_sets']} "
+        f"source_reused={selection_metadata['source_reused']}"
+    )
 
 
 if __name__ == "__main__":

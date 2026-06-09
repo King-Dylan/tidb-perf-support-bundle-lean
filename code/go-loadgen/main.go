@@ -56,12 +56,18 @@ type Workload struct {
 	Mode             string          `json:"mode"`
 	EventCount       int             `json:"event_count"`
 	BundleCount      int             `json:"bundle_count"`
+	EventSelection   map[string]any  `json:"event_selection,omitempty"`
+	WorkloadStats    map[string]any  `json:"workload_stats,omitempty"`
 	Templates        []Template      `json:"templates"`
 	Events           []WorkloadEvent `json:"events"`
 }
 
 type Task struct {
 	EventIdx    int
+	WorkloadIdx int
+	SourceEvent string
+	Kind        string
+	HotField    string
 	TemplateIdx int
 	Params      []interface{}
 	Skip        bool
@@ -80,6 +86,10 @@ type EventState struct {
 
 type EventResult struct {
 	EventIdx     int     `json:"event_idx"`
+	WorkloadIdx  int     `json:"workload_idx"`
+	SourceEvent  string  `json:"source_event,omitempty"`
+	Kind         string  `json:"kind,omitempty"`
+	HotField     string  `json:"hot_field,omitempty"`
 	MS           float64 `json:"ms"`
 	Score60MS    float64 `json:"score60_ms"`
 	Full65MS     float64 `json:"full65_ms"`
@@ -186,8 +196,14 @@ type Result struct {
 	MaxExecutionTimeMS int                `json:"max_execution_time_ms"`
 	PrepareAll         bool               `json:"prepare_all"`
 	ExecutionMode      string             `json:"execution_mode"`
+	EventOffset        int                `json:"event_offset"`
+	EventStride        int                `json:"event_stride"`
+	CacheState         string             `json:"cache_state,omitempty"`
+	CacheNote          string             `json:"cache_note,omitempty"`
 	StartAtUnixMS      int64              `json:"start_at_unix_ms,omitempty"`
 	SetupTimeout       string             `json:"setup_timeout"`
+	WorkloadSelection  map[string]any     `json:"workload_event_selection,omitempty"`
+	WorkloadStats      map[string]any     `json:"workload_stats,omitempty"`
 	ReadyWorkers       int                `json:"ready_workers"`
 	SetupErrors        []string           `json:"setup_errors,omitempty"`
 	FirstQueryErrors   []string           `json:"first_query_errors,omitempty"`
@@ -218,9 +234,16 @@ type RealismReport struct {
 	CompletedEvents        int                          `json:"completed_events"`
 	GeneratedWorkloadRows  int                          `json:"generated_workload_rows"`
 	UniqueSourceEvents     int                          `json:"unique_source_events"`
+	ExecutedUniqueEvents   int                          `json:"executed_unique_events"`
+	UniqueBindingSets      int                          `json:"unique_binding_sets"`
+	ExecutedBindingSets    int                          `json:"executed_unique_binding_sets"`
 	CycledWorkloadSample   bool                         `json:"cycled_workload_sample"`
+	EventOffset            int                          `json:"event_offset"`
+	EventStride            int                          `json:"event_stride"`
 	WorkloadRowReuseMin    int                          `json:"workload_row_reuse_min,omitempty"`
 	WorkloadRowReuseMax    int                          `json:"workload_row_reuse_max,omitempty"`
+	CacheState             string                       `json:"cache_state,omitempty"`
+	CacheNote              string                       `json:"cache_note,omitempty"`
 	EventMix               map[string]int               `json:"event_mix"`
 	HotFieldMix            map[string]int               `json:"hot_field_mix"`
 	BindingFieldsAvailable bool                         `json:"binding_fields_available"`
@@ -368,6 +391,46 @@ func valueKey(v interface{}) string {
 		return "<null>"
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+func workloadIndex(eventIdx int, eventCount int, eventOffset int, eventStride int) int {
+	if eventCount <= 0 {
+		return 0
+	}
+	if eventStride <= 0 {
+		eventStride = 1
+	}
+	idx := (eventOffset + eventIdx*eventStride) % eventCount
+	if idx < 0 {
+		idx += eventCount
+	}
+	return idx
+}
+
+func sourceEventKey(event WorkloadEvent, fallbackIdx int) string {
+	if event.Event != "" {
+		return event.Event
+	}
+	if event.Index >= 0 {
+		return fmt.Sprintf("workload_index:%d", event.Index)
+	}
+	return fmt.Sprintf("workload_index:%d", fallbackIdx)
+}
+
+func bindingSetKey(event WorkloadEvent) string {
+	if len(event.Bindings) == 0 {
+		return ""
+	}
+	fields := make([]string, 0, len(event.Bindings))
+	for field := range event.Bindings {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+	parts := make([]string, 0, len(fields))
+	for _, field := range fields {
+		parts = append(parts, field+"="+valueKey(event.Bindings[field]))
+	}
+	return strings.Join(parts, "\x1f")
 }
 
 func incrementCounter(counter map[string]int, key string) {
@@ -644,6 +707,10 @@ func worker(
 			sqlScore60MS, sqlFull65MS, sqlBundlesBy350, sqlBundlesBy500 := state.sqlOnlyTimings(len(templates))
 			eventDone <- EventResult{
 				EventIdx:     task.EventIdx,
+				WorkloadIdx:  task.WorkloadIdx,
+				SourceEvent:  task.SourceEvent,
+				Kind:         task.Kind,
+				HotField:     task.HotField,
 				MS:           float64(completedNs-startNs) / 1e6,
 				Score60MS:    score60MS,
 				Full65MS:     full65MS,
@@ -755,6 +822,7 @@ func prewarmPool(ctx context.Context, db *sql.DB, connections int) (int, []strin
 func runOneEventFanout(
 	runCtx context.Context,
 	eventIdx int,
+	workloadIdx int,
 	sourceEvent WorkloadEvent,
 	templateCount int,
 	templateIdx map[string]int,
@@ -865,6 +933,10 @@ func runOneEventFanout(
 	}
 	eventDone <- EventResult{
 		EventIdx:     eventIdx,
+		WorkloadIdx:  workloadIdx,
+		SourceEvent:  sourceEventKey(sourceEvent, workloadIdx),
+		Kind:         sourceEvent.Kind,
+		HotField:     valueKey(sourceEvent.HotField),
 		MS:           float64(completedNs-eventStartNs) / 1e6,
 		Score60MS:    score60MS,
 		Full65MS:     full65MS,
@@ -891,6 +963,8 @@ func runEventFanout(
 	targetEventEPS float64,
 	maxPending int,
 	queryTimeout time.Duration,
+	eventOffset int,
+	eventStride int,
 ) RunStats {
 	setupStarted := time.Now()
 	setupCtx, cancelSetup := context.WithTimeout(runCtx, setupTimeout)
@@ -985,8 +1059,9 @@ func runEventFanout(
 				time.Sleep(wait)
 			}
 		}
-		sourceEvent := workload.Events[eventIdx%len(workload.Events)]
-		go runOneEventFanout(runCtx, eventIdx, sourceEvent, len(workload.Templates), templateIdx, prepare, queryTimeout, metrics, eventDone)
+		sourceIdx := workloadIndex(eventIdx, len(workload.Events), eventOffset, eventStride)
+		sourceEvent := workload.Events[sourceIdx]
+		go runOneEventFanout(runCtx, eventIdx, sourceIdx, sourceEvent, len(workload.Templates), templateIdx, prepare, queryTimeout, metrics, eventDone)
 	}
 	<-collectorDone
 	eventMu.Lock()
@@ -1106,6 +1181,7 @@ func prewarmConnSlots(
 func runOneEventConnFanout(
 	runCtx context.Context,
 	eventIdx int,
+	workloadIdx int,
 	sourceEvent WorkloadEvent,
 	templateCount int,
 	templateIdx map[string]int,
@@ -1222,6 +1298,10 @@ func runOneEventConnFanout(
 	}
 	eventDone <- EventResult{
 		EventIdx:     eventIdx,
+		WorkloadIdx:  workloadIdx,
+		SourceEvent:  sourceEventKey(sourceEvent, workloadIdx),
+		Kind:         sourceEvent.Kind,
+		HotField:     valueKey(sourceEvent.HotField),
 		MS:           float64(completedNs-eventStartNs) / 1e6,
 		Score60MS:    score60MS,
 		Full65MS:     full65MS,
@@ -1250,6 +1330,8 @@ func runConnFanout(
 	queryTimeout time.Duration,
 	isolation string,
 	maxExecMS int,
+	eventOffset int,
+	eventStride int,
 ) RunStats {
 	setupStarted := time.Now()
 	setupCtx, cancelSetup := context.WithTimeout(runCtx, setupTimeout)
@@ -1322,8 +1404,9 @@ func runConnFanout(
 				time.Sleep(wait)
 			}
 		}
-		sourceEvent := workload.Events[eventIdx%len(workload.Events)]
-		go runOneEventConnFanout(runCtx, eventIdx, sourceEvent, len(workload.Templates), templateIdx, workload.Templates, readySlots, queryTimeout, metrics, eventDone)
+		sourceIdx := workloadIndex(eventIdx, len(workload.Events), eventOffset, eventStride)
+		sourceEvent := workload.Events[sourceIdx]
+		go runOneEventConnFanout(runCtx, eventIdx, sourceIdx, sourceEvent, len(workload.Templates), templateIdx, workload.Templates, readySlots, queryTimeout, metrics, eventDone)
 	}
 	<-collectorDone
 	eventMu.Lock()
@@ -1353,10 +1436,22 @@ func runConnFanout(
 	return stats
 }
 
-func buildRealismReport(workload Workload, eventsToRun int, completedEvents int) RealismReport {
+func buildRealismReport(
+	workload Workload,
+	eventsToRun int,
+	completedEvents int,
+	eventOffset int,
+	eventStride int,
+	cacheState string,
+	cacheNote string,
+) RealismReport {
 	report := RealismReport{
 		CompletedEvents:       completedEvents,
 		GeneratedWorkloadRows: len(workload.Events),
+		EventOffset:           eventOffset,
+		EventStride:           eventStride,
+		CacheState:            cacheState,
+		CacheNote:             cacheNote,
 		EventMix:              make(map[string]int),
 		HotFieldMix:           make(map[string]int),
 		BindingFields:         make(map[string]BindingFieldStats),
@@ -1364,15 +1459,28 @@ func buildRealismReport(workload Workload, eventsToRun int, completedEvents int)
 	if len(workload.Events) == 0 || eventsToRun <= 0 {
 		return report
 	}
-	uniqueEvents := make(map[string]struct{})
+	generatedUniqueEvents := make(map[string]struct{})
+	generatedBindingSets := make(map[string]struct{})
+	for idx, event := range workload.Events {
+		generatedUniqueEvents[sourceEventKey(event, idx)] = struct{}{}
+		if key := bindingSetKey(event); key != "" {
+			generatedBindingSets[key] = struct{}{}
+		}
+	}
+	report.UniqueSourceEvents = len(generatedUniqueEvents)
+	report.UniqueBindingSets = len(generatedBindingSets)
+
+	executedUniqueEvents := make(map[string]struct{})
+	executedBindingSets := make(map[string]struct{})
 	bindingValues := make(map[string]map[string]int)
 	reuseCounts := make([]int, len(workload.Events))
 	for idx := 0; idx < eventsToRun; idx++ {
-		workloadIdx := idx % len(workload.Events)
+		workloadIdx := workloadIndex(idx, len(workload.Events), eventOffset, eventStride)
 		reuseCounts[workloadIdx]++
 		event := workload.Events[workloadIdx]
-		if event.Event != "" {
-			uniqueEvents[event.Event] = struct{}{}
+		executedUniqueEvents[sourceEventKey(event, workloadIdx)] = struct{}{}
+		if key := bindingSetKey(event); key != "" {
+			executedBindingSets[key] = struct{}{}
 		}
 		incrementCounter(report.EventMix, event.Kind)
 		incrementCounter(report.HotFieldMix, valueKey(event.HotField))
@@ -1386,8 +1494,9 @@ func buildRealismReport(workload Workload, eventsToRun int, completedEvents int)
 			}
 		}
 	}
-	report.UniqueSourceEvents = len(uniqueEvents)
-	report.CycledWorkloadSample = eventsToRun > len(workload.Events)
+	report.ExecutedUniqueEvents = len(executedUniqueEvents)
+	report.ExecutedBindingSets = len(executedBindingSets)
+	report.CycledWorkloadSample = eventsToRun > len(executedUniqueEvents)
 	report.WorkloadRowReuseMin = reuseCounts[0]
 	report.WorkloadRowReuseMax = reuseCounts[0]
 	for _, count := range reuseCounts {
@@ -1455,6 +1564,10 @@ func buildCustomerReport(
 	bundlesBy500 []float64,
 	bundleSummaries map[string]Summary,
 	eventsToRun int,
+	eventOffset int,
+	eventStride int,
+	cacheState string,
+	cacheNote string,
 ) CustomerReport {
 	totalEvents := len(stats.EventResults)
 	return CustomerReport{
@@ -1482,7 +1595,7 @@ func buildCustomerReport(
 		},
 		AvgBundlesBy350MS: summarize(bundlesBy350).Avg,
 		AvgBundlesBy500MS: summarize(bundlesBy500).Avg,
-		Realism:           buildRealismReport(workload, eventsToRun, totalEvents),
+		Realism:           buildRealismReport(workload, eventsToRun, totalEvents, eventOffset, eventStride, cacheState, cacheNote),
 		TailDrivers:       topTailDrivers(bundleSummaries, 10),
 	}
 }
@@ -1520,8 +1633,11 @@ func printCustomerReport(report CustomerReport) {
 	}
 	r := report.Realism
 	fmt.Println("test_realism")
-	fmt.Printf("  generated_workload_rows=%d unique_source_events=%d cycled=%v row_reuse_min=%d row_reuse_max=%d\n",
-		r.GeneratedWorkloadRows, r.UniqueSourceEvents, r.CycledWorkloadSample, r.WorkloadRowReuseMin, r.WorkloadRowReuseMax)
+	fmt.Printf("  generated_workload_rows=%d unique_source_events=%d unique_binding_sets=%d\n",
+		r.GeneratedWorkloadRows, r.UniqueSourceEvents, r.UniqueBindingSets)
+	fmt.Printf("  executed_unique_events=%d executed_unique_binding_sets=%d cycled=%v row_reuse_min=%d row_reuse_max=%d event_offset=%d event_stride=%d\n",
+		r.ExecutedUniqueEvents, r.ExecutedBindingSets, r.CycledWorkloadSample, r.WorkloadRowReuseMin, r.WorkloadRowReuseMax, r.EventOffset, r.EventStride)
+	fmt.Printf("  cache_state=%s cache_note=%s\n", r.CacheState, r.CacheNote)
 	fmt.Printf("  event_mix=%v hot_field_mix=%v\n", r.EventMix, r.HotFieldMix)
 	if r.BindingFieldsAvailable {
 		fmt.Println("  binding_fields")
@@ -1560,6 +1676,10 @@ func emitResult(
 	maxExecMS int,
 	prepareAll bool,
 	executionMode string,
+	eventOffset int,
+	eventStride int,
+	cacheState string,
+	cacheNote string,
 	startAtUnixMS int64,
 	setupTimeout time.Duration,
 	omitEvents bool,
@@ -1604,7 +1724,7 @@ func emitResult(
 	if stats.Elapsed.Seconds() > 0 {
 		completedEPS = float64(len(stats.EventResults)) / stats.Elapsed.Seconds()
 	}
-	customerReport := buildCustomerReport(workload, stats, sqlScore60MS, sqlFull65MS, bundlesBy350, bundlesBy500, bundleSummaries, eventsToRun)
+	customerReport := buildCustomerReport(workload, stats, sqlScore60MS, sqlFull65MS, bundlesBy350, bundlesBy500, bundleSummaries, eventsToRun, eventOffset, eventStride, cacheState, cacheNote)
 	result := Result{
 		StartedAtUnix:      float64(stats.Started.UnixNano()) / 1e9,
 		ElapsedSeconds:     stats.Elapsed.Seconds(),
@@ -1624,8 +1744,14 @@ func emitResult(
 		MaxExecutionTimeMS: maxExecMS,
 		PrepareAll:         prepareAll,
 		ExecutionMode:      executionMode,
+		EventOffset:        eventOffset,
+		EventStride:        eventStride,
+		CacheState:         cacheState,
+		CacheNote:          cacheNote,
 		StartAtUnixMS:      startAtUnixMS,
 		SetupTimeout:       setupTimeout.String(),
+		WorkloadSelection:  workload.EventSelection,
+		WorkloadStats:      workload.WorkloadStats,
 		ReadyWorkers:       stats.ReadyWorkers,
 		SetupErrors:        stats.SetupErrors,
 		FirstQueryErrors:   stats.FirstQueryErrors,
@@ -1736,7 +1862,11 @@ func main() {
 		targetEventEPS = flag.Float64("target-event-eps", 0, "steady-state event submission rate; requires --duration")
 		duration       = flag.Duration("duration", 0, "steady-state submission duration; requires --target-event-eps")
 		maxPending     = flag.Int("max-pending-events", 0, "cap submitted-but-not-completed events in steady mode; 0 disables")
-		omitEvents     = flag.Bool("omit-event-results", true, "omit per-event results from JSON")
+		omitEvents     = flag.Bool("omit-event-results", false, "omit per-event results from JSON")
+		eventOffset    = flag.Int("event-offset", 0, "first workload event index to use; fleet runner sets this per process")
+		eventStride    = flag.Int("event-stride", 1, "stride across workload events; fleet runner sets this to worker count")
+		cacheState     = flag.String("cache-state", "unknown", "cache state label for customer report: warm, cold, restarted, unknown")
+		cacheNote      = flag.String("cache-note", "", "free-form cache-state note stored in result JSON")
 	)
 	flag.Parse()
 
@@ -1780,12 +1910,22 @@ func main() {
 		templateIdx[tmpl.BundleID] = idx
 	}
 	totalTasks := eventsToRun * len(workload.Templates)
+	if len(workload.Events) == 0 {
+		fmt.Fprintln(os.Stderr, "workload has no events")
+		os.Exit(1)
+	}
+	if *eventStride <= 0 {
+		fmt.Fprintln(os.Stderr, "--event-stride must be > 0")
+		os.Exit(1)
+	}
 	if *executionMode != "worker-pool" && *executionMode != "event-fanout" && *executionMode != "conn-fanout" {
 		fmt.Fprintf(os.Stderr, "unknown --execution-mode %q; expected worker-pool, event-fanout, or conn-fanout\n", *executionMode)
 		os.Exit(1)
 	}
 	fmt.Printf("Go loadgen: events=%d bundles/event=%d tasks=%d connections=%d prepare_all=%v steady=%v mode=%s\n",
 		eventsToRun, len(workload.Templates), totalTasks, *connections, *prepareAll, steadyMode, *executionMode)
+	fmt.Printf("Workload selection: rows=%d event_offset=%d event_stride=%d cache_state=%s omit_event_results=%v\n",
+		len(workload.Events), *eventOffset, *eventStride, *cacheState, *omitEvents)
 	fmt.Printf("DB: %s:%d db=%s user=%s read_timeout=%s query_timeout=%s max_exec_ms=%d\n",
 		cfg.Host, cfg.Port, cfg.Database, cfg.User, readTimeout.String(), queryTimeout.String(), *maxExecMS)
 
@@ -1817,6 +1957,8 @@ func main() {
 			*queryTimeout,
 			*isolation,
 			*maxExecMS,
+			*eventOffset,
+			*eventStride,
 		)
 		emitResult(
 			*outputPath,
@@ -1834,6 +1976,10 @@ func main() {
 			*maxExecMS,
 			*prepareAll,
 			*executionMode,
+			*eventOffset,
+			*eventStride,
+			*cacheState,
+			*cacheNote,
 			*startAtUnixMS,
 			*setupTimeout,
 			*omitEvents,
@@ -1854,6 +2000,8 @@ func main() {
 			*targetEventEPS,
 			*maxPending,
 			*queryTimeout,
+			*eventOffset,
+			*eventStride,
 		)
 		emitResult(
 			*outputPath,
@@ -1871,6 +2019,10 @@ func main() {
 			*maxExecMS,
 			*prepareAll,
 			*executionMode,
+			*eventOffset,
+			*eventStride,
+			*cacheState,
+			*cacheNote,
 			*startAtUnixMS,
 			*setupTimeout,
 			*omitEvents,
@@ -1948,7 +2100,8 @@ readyLoop:
 		eventStart := time.Now()
 		eventStates[eventIdx].StartNs = eventStart.UnixNano()
 		eventStates[eventIdx].Remaining = int64(len(workload.Templates))
-		sourceEvent := workload.Events[eventIdx%len(workload.Events)]
+		sourceIdx := workloadIndex(eventIdx, len(workload.Events), *eventOffset, *eventStride)
+		sourceEvent := workload.Events[sourceIdx]
 		for _, bundle := range sourceEvent.Bundles {
 			idx, ok := templateIdx[bundle.BundleID]
 			if !ok {
@@ -1956,6 +2109,10 @@ readyLoop:
 			}
 			tasks <- Task{
 				EventIdx:    eventIdx,
+				WorkloadIdx: sourceIdx,
+				SourceEvent: sourceEventKey(sourceEvent, sourceIdx),
+				Kind:        sourceEvent.Kind,
+				HotField:    valueKey(sourceEvent.HotField),
 				TemplateIdx: idx,
 				Params:      bundle.Params,
 				Skip:        bundle.Skip,
@@ -2064,6 +2221,10 @@ readyLoop:
 		*maxExecMS,
 		*prepareAll,
 		*executionMode,
+		*eventOffset,
+		*eventStride,
+		*cacheState,
+		*cacheNote,
 		*startAtUnixMS,
 		*setupTimeout,
 		*omitEvents,
