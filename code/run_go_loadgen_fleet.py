@@ -120,7 +120,20 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
     source_events = {str(row.get("source_event")) for row in event_rows if row.get("source_event")}
     workload_indices = [int(row.get("workload_idx", -1)) for row in event_rows if int(row.get("workload_idx", -1)) >= 0]
     workload_stats = next((result.get("workload_stats") for result in results if result.get("workload_stats")), {})
+    workload_selection = next((result.get("workload_event_selection") for result in results if result.get("workload_event_selection")), {})
     cache_states = sorted({str(result.get("cache_state") or "unknown") for result in results})
+    run_shape = {
+        "app_processes": len(results),
+        "total_connections": sum(int(result.get("connections", 0) or 0) for result in results),
+        "ready_workers": sum(int(result.get("ready_workers", 0) or 0) for result in results),
+        "target_event_eps": sum(float(result.get("target_event_eps", 0.0) or 0.0) for result in results),
+        "duration_seconds": max((float(result.get("duration_seconds", 0.0) or 0.0) for result in results), default=0.0),
+        "max_pending_events_per_process": max((int(result.get("max_pending_events", 0) or 0) for result in results), default=0),
+        "execution_modes": sorted({str(result.get("execution_mode") or "unknown") for result in results}),
+        "prepare_all": all(bool(result.get("prepare_all")) for result in results) if results else False,
+        "max_execution_time_ms": sorted({int(result.get("max_execution_time_ms", 0) or 0) for result in results}),
+        "event_stride_values": sorted({int(result.get("event_stride", 0) or 0) for result in results}),
+    }
 
     tail_by_bundle: dict[str, dict[str, float | int | str]] = {}
     for result in results:
@@ -157,6 +170,7 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
         "completed_events": total_events,
         "elapsed_seconds": elapsed,
         "completed_eps": (total_events / elapsed) if elapsed else 0.0,
+        "run_shape": run_shape,
         "sql_only_sla": {
             "score_ready_60_of_65": {"300ms": count_rate(sql_score60, 300), "350ms": count_rate(sql_score60, 350), "500ms": count_rate(sql_score60, 500)},
             "full_65_of_65": {"300ms": count_rate(sql_full65, 300), "350ms": count_rate(sql_full65, 350), "500ms": count_rate(sql_full65, 500)},
@@ -175,6 +189,7 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
             "event_mix": dict(sorted(event_mix.items())),
             "hot_field_mix": dict(sorted(hot_field_mix.items())),
             "cache_states": cache_states,
+            "workload_selection": workload_selection,
             "workload_stats": workload_stats,
         },
         "tail_drivers": tail_drivers,
@@ -221,6 +236,238 @@ def print_fleet_customer_report(report: dict[str, object]) -> None:
             f"p99={row['p99']:.1f} p999={row['p999']:.1f} max={row['max']:.1f} "
             f">300={row['over_300']} >350={row['over_350']} >500={row['over_500']}"
         )
+
+
+def format_count(value: object) -> str:
+    try:
+        return f"{int(value):,}"
+    except (TypeError, ValueError):
+        return "0"
+
+
+def format_ms(value: object) -> str:
+    try:
+        ms = float(value)
+    except (TypeError, ValueError):
+        return "0.0ms"
+    if ms >= 1000:
+        return f"{ms / 1000:.2f}s"
+    return f"{ms:.1f}ms"
+
+
+def format_percent(value: object) -> str:
+    try:
+        return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return "0.00%"
+
+
+def format_eps(value: object) -> str:
+    try:
+        return f"{float(value):.2f}"
+    except (TypeError, ValueError):
+        return "0.00"
+
+
+def markdown_count_rate(row: dict[str, object], total_events: int) -> str:
+    return (
+        f"{format_count(row.get('events'))}/{format_count(total_events)} "
+        f"({format_percent(row.get('percent'))}, {format_eps(row.get('eps'))} EPS)"
+    )
+
+
+def markdown_summary_row(name: str, detail: dict[str, object]) -> str:
+    summary = detail.get("summary", {})
+    if not isinstance(summary, dict):
+        summary = {}
+    return (
+        f"| {name} | {format_count(summary.get('n'))} | {format_ms(summary.get('p50'))} | "
+        f"{format_ms(summary.get('p95'))} | {format_ms(summary.get('p99'))} | "
+        f"{format_ms(summary.get('max'))} | {format_count(summary.get('over_300'))} | "
+        f"{format_count(summary.get('over_350'))} | {format_count(summary.get('over_500'))} |"
+    )
+
+
+def markdown_histogram_row(name: str, detail: dict[str, object]) -> str:
+    hist = detail.get("histogram", {})
+    if not isinstance(hist, dict):
+        hist = {}
+    buckets = ["0-50ms", "50-100ms", "100-150ms", "150-200ms", "200-300ms", "300-350ms", "350-500ms", ">500/error"]
+    cells = " | ".join(format_count(hist.get(bucket, 0)) for bucket in buckets)
+    return f"| {name} | {cells} |"
+
+
+def render_markdown_report(report: dict[str, object], runs: list[dict[str, object]]) -> str:
+    total_events = int(report.get("completed_events", 0) or 0)
+    realism = report.get("test_realism", {})
+    if not isinstance(realism, dict):
+        realism = {}
+    workload_stats = realism.get("workload_stats") or {}
+    if not isinstance(workload_stats, dict):
+        workload_stats = {}
+    workload_selection = realism.get("workload_selection") or {}
+    if not isinstance(workload_selection, dict):
+        workload_selection = {}
+    binding_fields = workload_stats.get("binding_fields") or {}
+    if not isinstance(binding_fields, dict):
+        binding_fields = {}
+    sla = report.get("sql_only_sla", {})
+    if not isinstance(sla, dict):
+        sla = {}
+    latency = report.get("sql_only_latency", {})
+    if not isinstance(latency, dict):
+        latency = {}
+    result_files = report.get("result_files") or []
+    if not isinstance(result_files, list):
+        result_files = []
+    cache_states = realism.get("cache_states") or []
+    if not isinstance(cache_states, list):
+        cache_states = []
+    run_shape = report.get("run_shape") or {}
+    if not isinstance(run_shape, dict):
+        run_shape = {}
+
+    score_ready = sla.get("score_ready_60_of_65", {})
+    full_65 = sla.get("full_65_of_65", {})
+    if not isinstance(score_ready, dict):
+        score_ready = {}
+    if not isinstance(full_65, dict):
+        full_65 = {}
+
+    event_mix = realism.get("event_mix") or {}
+    hot_field_mix = realism.get("hot_field_mix") or {}
+    if not isinstance(event_mix, dict):
+        event_mix = {}
+    if not isinstance(hot_field_mix, dict):
+        hot_field_mix = {}
+
+    lines: list[str] = []
+    lines.append("# 1000 EPS SQL-Only Event-Level Benchmark Report")
+    lines.append("")
+    lines.append("## Summary")
+    lines.append("")
+    lines.append(f"- Completed events: {format_count(total_events)}")
+    lines.append(f"- Completed event throughput: {format_eps(report.get('completed_eps'))} events/sec")
+    lines.append(f"- Fleet app processes: {format_count(run_shape.get('app_processes', len(runs)))}")
+    lines.append(f"- Result JSON files merged: {format_count(len(result_files))}")
+    lines.append(f"- Cache state labels: {', '.join(cache_states) if cache_states else 'unknown'}")
+    lines.append("- Latency scope: SQL-only TiDB-facing bundle runtime.")
+    lines.append("")
+    lines.append("Important: all customer-facing SLA and latency numbers below use SQL-only TiDB-facing bundle runtime. They exclude client task queue time, prepared statement setup, Go/Python scheduling, event fan-out/fan-in wall time, and application-side aggregation.")
+    lines.append("")
+    lines.append("## Test Shape")
+    lines.append("")
+    lines.append(f"- Target event EPS: {format_eps(run_shape.get('target_event_eps'))}")
+    lines.append(f"- Duration: {format_eps(run_shape.get('duration_seconds'))} seconds")
+    lines.append(f"- Total configured connections: {format_count(run_shape.get('total_connections'))}")
+    lines.append(f"- Ready connection workers: {format_count(run_shape.get('ready_workers'))}")
+    lines.append(f"- Max pending events per process: {format_count(run_shape.get('max_pending_events_per_process'))}")
+    lines.append(f"- Execution modes: {', '.join(run_shape.get('execution_modes', [])) if isinstance(run_shape.get('execution_modes'), list) else 'unknown'}")
+    lines.append(f"- Prepared statements enabled on all processes: {run_shape.get('prepare_all', False)}")
+    lines.append(f"- Max execution time settings: {run_shape.get('max_execution_time_ms', [])}")
+    lines.append(f"- Event stride values: {run_shape.get('event_stride_values', [])}")
+    lines.append("")
+    lines.append("## Event-Level SLA")
+    lines.append("")
+    lines.append("| View | <=300ms | <=350ms | <=500ms |")
+    lines.append("| --- | ---: | ---: | ---: |")
+    lines.append(
+        "| Score-ready >=60/65 | "
+        f"{markdown_count_rate(score_ready.get('300ms', {}), total_events)} | "
+        f"{markdown_count_rate(score_ready.get('350ms', {}), total_events)} | "
+        f"{markdown_count_rate(score_ready.get('500ms', {}), total_events)} |"
+    )
+    lines.append(
+        "| Full 65/65 | "
+        f"{markdown_count_rate(full_65.get('300ms', {}), total_events)} | "
+        f"{markdown_count_rate(full_65.get('350ms', {}), total_events)} | "
+        f"{markdown_count_rate(full_65.get('500ms', {}), total_events)} |"
+    )
+    lines.append("")
+    lines.append("## Event Latency")
+    lines.append("")
+    lines.append("| View | n | p50 | p95 | p99 | max | >300ms | >350ms | >500ms |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append(markdown_summary_row("Score-ready 60/65", latency.get("score_ready_60_of_65", {})))
+    lines.append(markdown_summary_row("Full 65/65", latency.get("full_65_of_65", {})))
+    lines.append("")
+    lines.append("## Return-Time Histogram")
+    lines.append("")
+    lines.append("| View | 0-50ms | 50-100ms | 100-150ms | 150-200ms | 200-300ms | 300-350ms | 350-500ms | >500/error |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    lines.append(markdown_histogram_row("Score-ready 60/65", latency.get("score_ready_60_of_65", {})))
+    lines.append(markdown_histogram_row("Full 65/65", latency.get("full_65_of_65", {})))
+    lines.append("")
+    lines.append("## Average Bundles Returned")
+    lines.append("")
+    lines.append("| Cutoff | Average bundles returned |")
+    lines.append("| --- | ---: |")
+    lines.append(f"| 300ms | {float(report.get('avg_bundles_by_300_ms', 0.0) or 0.0):.2f}/65 |")
+    lines.append(f"| 350ms | {float(report.get('avg_bundles_by_350_ms', 0.0) or 0.0):.2f}/65 |")
+    lines.append(f"| 500ms | {float(report.get('avg_bundles_by_500_ms', 0.0) or 0.0):.2f}/65 |")
+    lines.append("")
+    lines.append("## Binding Reuse / Test Realism")
+    lines.append("")
+    lines.append(f"- Generated workload rows: {format_count(workload_stats.get('event_rows'))}")
+    lines.append(f"- Unique source events in generated workload: {format_count(workload_stats.get('unique_source_events'))}")
+    lines.append(f"- Unique full binding sets in generated workload: {format_count(workload_stats.get('unique_binding_sets'))}")
+    lines.append(f"- Unique source events executed in this fleet run: {format_count(realism.get('unique_executed_source_events'))}")
+    lines.append(f"- Unique workload rows executed in this fleet run: {format_count(realism.get('unique_executed_workload_rows'))}")
+    lines.append(f"- Max workload row repeat in this fleet run: {format_count(realism.get('workload_row_reuse_max'))}")
+    lines.append(f"- Source event sample reused by generator: {workload_selection.get('source_reused', 'unknown')}")
+    lines.append(f"- Unique events required during generation: {workload_selection.get('unique_events_required', 'unknown')}")
+    lines.append("")
+    if binding_fields:
+        lines.append("| Field | Distinct values | Max repeat | Max repeated value |")
+        lines.append("| --- | ---: | ---: | --- |")
+        for field in sorted(binding_fields):
+            stats = binding_fields[field]
+            if not isinstance(stats, dict):
+                stats = {}
+            lines.append(
+                f"| {field} | {format_count(stats.get('distinct'))} | "
+                f"{format_count(stats.get('max_repeat'))} | `{stats.get('max_value', '')}` |"
+            )
+        lines.append("")
+    lines.append("## Event Mix")
+    lines.append("")
+    if event_mix:
+        for key, value in sorted(event_mix.items()):
+            lines.append(f"- {key}: {format_count(value)}")
+    else:
+        lines.append("- unavailable")
+    lines.append("")
+    lines.append("## Hot-Key Field Mix")
+    lines.append("")
+    if hot_field_mix:
+        for key, value in sorted(hot_field_mix.items()):
+            lines.append(f"- {key}: {format_count(value)}")
+    else:
+        lines.append("- unavailable")
+    lines.append("")
+    lines.append("## Tail Drivers")
+    lines.append("")
+    lines.append("The counts below are bundle executions whose SQL-only TiDB-facing runtime exceeded each cutoff. They are aggregated across all fetched app-process result files.")
+    lines.append("")
+    lines.append("| Bundle | n | p95 | p99 | p999 | max | >300ms | >350ms | >500ms |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for row in report.get("tail_drivers", []):
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"| {row.get('bundle_id', '')} | {format_count(row.get('n'))} | "
+            f"{format_ms(row.get('p95'))} | {format_ms(row.get('p99'))} | "
+            f"{format_ms(row.get('p999'))} | {format_ms(row.get('max'))} | "
+            f"{format_count(row.get('over_300'))} | {format_count(row.get('over_350'))} | "
+            f"{format_count(row.get('over_500'))} |"
+        )
+    lines.append("")
+    lines.append("## Merged Result Files")
+    lines.append("")
+    for item in result_files:
+        lines.append(f"- `{item}`")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def main() -> None:
@@ -381,6 +628,9 @@ def main() -> None:
     fleet_report = aggregate_result_jsons(fetched_results) if fetched_results else {}
     if fleet_report:
         print_fleet_customer_report(fleet_report)
+        report_path = local_log_dir / f"{output_prefix}_customer_report.md"
+        report_path.write_text(render_markdown_report(fleet_report, summaries), encoding="utf-8")
+        print(f"customer_report_md={report_path}")
     summary_path.write_text(json.dumps({"elapsed": elapsed, "runs": summaries, "fleet_customer_report": fleet_report}, indent=2), encoding="utf-8")
     print(f"summary={summary_path}")
 

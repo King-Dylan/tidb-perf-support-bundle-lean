@@ -445,6 +445,9 @@ This layout means:
   600K workload
 - the fleet runner fetches each remote Go result JSON by default and writes a
   merged `fleet_customer_report` into `results/${prefix}_summary.json`
+- the fleet runner also writes a human-readable
+  `results/${prefix}_customer_report.md`; this is the customer-facing report
+  that aggregates all EC2/app-process result files
 - `3000` requested connections total; the runner rounded this to `188`
   connections per process, or about `3008` pool slots total
 - the 10-minute run reported `Workers ready=186-188/188` per process
@@ -485,6 +488,10 @@ The Go output prints and stores these key summaries:
   because they are calculated from saved `event_results`. Tail-driver p999 is
   reported as the maximum worker-level p999 for each bundle; exact global
   per-bundle p999 would require retaining every bundle execution row.
+- `results/${prefix}_customer_report.md` is the Markdown version intended for
+  sharing. It uses the same SQL-only/TiDB-facing latency scope as
+  `fleet_customer_report`, so it does not include app scheduling, queueing, or
+  fan-in wall-clock time in customer-facing latency numbers.
 
 ## Client-Side Diagnostics
 
