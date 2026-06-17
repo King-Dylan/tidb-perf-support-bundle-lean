@@ -447,7 +447,7 @@ def render_markdown_report(report: dict[str, object], runs: list[dict[str, objec
     lines.append("")
     lines.append("## Tail Drivers")
     lines.append("")
-    lines.append("The counts below are bundle executions whose SQL-only TiDB-facing runtime exceeded each cutoff. They are aggregated across all fetched app-process result files.")
+    lines.append("The counts below are bundle executions whose SQL-only TiDB-facing runtime exceeded each cutoff. They are aggregated across all fetched app-process result files. The p95/p99/p999 values are the maximum worker-level bundle percentiles observed across app processes; exact global per-bundle percentiles would require retaining every bundle execution row.")
     lines.append("")
     lines.append("| Bundle | n | p95 | p99 | p999 | max | >300ms | >350ms | >500ms |")
     lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
