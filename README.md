@@ -50,7 +50,8 @@ This bundle intentionally excludes older experiment helpers and the separate `ru
 - Group C runtime joins include timestamp filters on both tables.
 - Python mixed-benchmark per-query cutoff: `READ_MAX_EXECUTION_TIME_MS=500`.
   The Go fleet SLA runs below use `--max-execution-time-ms 0` and calculate
-  350ms/500ms SLA from observed completion times instead of killing queries.
+  300ms/350ms/500ms SLA from observed completion times instead of killing
+  queries.
 - Background writes are enabled by default in the mixed benchmark.
 
 ## Event QPS Target
@@ -215,7 +216,8 @@ Recommended customer-facing mode for future fleet tests:
 - Per-event results are saved by default. Keep `--omit-event-results=false` for
   a final customer-facing run so the raw event-level `full_65_of_65`,
   `score_ready_60_of_65`, `sql_full65_ms`, `sql_score60_ms`, and
-  `bundles_by_350_ms` / `bundles_by_500_ms` records are preserved.
+  `bundles_by_300_ms` / `bundles_by_350_ms` / `bundles_by_500_ms` records are
+  preserved.
 - Fleet runs shard the workload by default with `--event-offset` and
   `--event-stride`, so 16 app processes cover a large event pool instead of all
   replaying the same first slice. Use `--no-shard-workload` only for a deliberate
@@ -225,8 +227,8 @@ Recommended customer-facing mode for future fleet tests:
   `customer_report.test_realism`.
 - `--max-execution-time-ms 0`, `--read-timeout 0s`, and `--query-timeout 0s`
   are used for SLA validation. Do not kill tail SQLs during the main run; use
-  the output summaries to calculate 350ms/500ms SLA. Cutoff tests are useful for
-  fallback experiments but they can create `Failed Query OPM` noise.
+  the output summaries to calculate 300ms/350ms/500ms SLA. Cutoff tests are
+  useful for fallback experiments but they can create `Failed Query OPM` noise.
 - The output splits client and database path timing into `task_queue`,
   `prepare_runtime`, `db_exec`, `result_drain`, and `query_runtime`
   (`db_exec + result_drain`). This keeps app-side waiting separate from
@@ -239,8 +241,10 @@ Recommended customer-facing mode for future fleet tests:
 - Every run prints a `CUSTOMER SQL-ONLY EVENT REPORT` and stores the same data
   under `customer_report` in the result JSON. This report is the default
   customer-facing view: SLA counts, latency histograms, average bundles returned
-  by 350ms/500ms, workload realism, binding skew, and tail-driver bundles are
-  all calculated from SQL-only bundle runtimes.
+  by 300ms/350ms/500ms, workload realism, binding skew, and tail-driver bundles
+  are all calculated from SQL-only bundle runtimes.
+- Histogram buckets are `0-50ms`, `50-100ms`, `100-150ms`, `150-200ms`,
+  `200-300ms`, `300-350ms`, `350-500ms`, and `>500/error`.
 
 ### 0. Build a Large Source Event Sample
 
@@ -487,7 +491,7 @@ The Go output prints and stores these key summaries:
 The packaged `mixed_traffic_test.py` records:
 
 - event-level fan-out capacity: target bundle SQL/sec, client bundle slots,
-  and 350/500ms slot requirements
+  and 300/350/500ms slot requirements
 - bundle task queue average/max per event
 - DB connection wait average/max per event
 

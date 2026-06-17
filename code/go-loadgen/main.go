@@ -97,6 +97,7 @@ type EventResult struct {
 	SQLFull65MS  float64 `json:"sql_full65_ms"`
 	Successes    int64   `json:"successes"`
 	Errors       int64   `json:"errors"`
+	BundlesBy300 int64   `json:"bundles_by_300_ms"`
 	BundlesBy350 int64   `json:"bundles_by_350_ms"`
 	BundlesBy500 int64   `json:"bundles_by_500_ms"`
 	CompletedAt  int64   `json:"completed_at_unix_nano"`
@@ -173,6 +174,7 @@ type Summary struct {
 	Avg     float64 `json:"avg,omitempty"`
 	Min     float64 `json:"min,omitempty"`
 	Max     float64 `json:"max,omitempty"`
+	Over300 int     `json:"over_300,omitempty"`
 	Over350 int     `json:"over_350,omitempty"`
 	Over500 int     `json:"over_500,omitempty"`
 }
@@ -257,6 +259,7 @@ type BundleTailReport struct {
 	P99      float64 `json:"p99"`
 	P999     float64 `json:"p999"`
 	Max      float64 `json:"max"`
+	Over300  int     `json:"over_300"`
 	Over350  int     `json:"over_350"`
 	Over500  int     `json:"over_500"`
 }
@@ -266,6 +269,7 @@ type CustomerReport struct {
 	CompletedEvents   int                             `json:"completed_events,omitempty"`
 	SQLOnlySLA        map[string]map[string]CountRate `json:"sql_only_sla,omitempty"`
 	SQLOnlyLatency    map[string]LatencyReport        `json:"sql_only_latency,omitempty"`
+	AvgBundlesBy300MS float64                         `json:"avg_bundles_by_300_ms,omitempty"`
 	AvgBundlesBy350MS float64                         `json:"avg_bundles_by_350_ms,omitempty"`
 	AvgBundlesBy500MS float64                         `json:"avg_bundles_by_500_ms,omitempty"`
 	Realism           RealismReport                   `json:"test_realism,omitempty"`
@@ -301,7 +305,7 @@ func summarize(vals []float64) Summary {
 		return Summary{N: 0}
 	}
 	minV, maxV, sum := vals[0], vals[0], 0.0
-	over350, over500 := 0, 0
+	over300, over350, over500 := 0, 0, 0
 	for _, v := range vals {
 		sum += v
 		if v < minV {
@@ -309,6 +313,9 @@ func summarize(vals []float64) Summary {
 		}
 		if v > maxV {
 			maxV = v
+		}
+		if v > 300 {
+			over300++
 		}
 		if v > 350 {
 			over350++
@@ -320,7 +327,7 @@ func summarize(vals []float64) Summary {
 	return Summary{
 		N: len(vals), P50: percentile(vals, 50), P95: percentile(vals, 95),
 		P99: percentile(vals, 99), P999: percentile(vals, 99.9), Avg: sum / float64(len(vals)),
-		Min: minV, Max: maxV, Over350: over350, Over500: over500,
+		Min: minV, Max: maxV, Over300: over300, Over350: over350, Over500: over500,
 	}
 }
 
@@ -353,7 +360,8 @@ func latencyHistogram(vals []float64, totalEvents int) map[string]int {
 		"50-100ms":   0,
 		"100-150ms":  0,
 		"150-200ms":  0,
-		"200-350ms":  0,
+		"200-300ms":  0,
+		"300-350ms":  0,
 		"350-500ms":  0,
 		">500/error": 0,
 	}
@@ -372,8 +380,10 @@ func latencyHistogram(vals []float64, totalEvents int) map[string]int {
 			hist["100-150ms"]++
 		case v <= 200:
 			hist["150-200ms"]++
+		case v <= 300:
+			hist["200-300ms"]++
 		case v <= 350:
-			hist["200-350ms"]++
+			hist["300-350ms"]++
 		case v <= 500:
 			hist["350-500ms"]++
 		default:
@@ -704,7 +714,7 @@ func worker(
 			if successes == int64(len(templates)) {
 				full65MS = float64(completedNs-startNs) / 1e6
 			}
-			sqlScore60MS, sqlFull65MS, sqlBundlesBy350, sqlBundlesBy500 := state.sqlOnlyTimings(len(templates))
+			sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := state.sqlOnlyTimings(len(templates))
 			eventDone <- EventResult{
 				EventIdx:     task.EventIdx,
 				WorkloadIdx:  task.WorkloadIdx,
@@ -718,6 +728,7 @@ func worker(
 				SQLFull65MS:  sqlFull65MS,
 				Successes:    successes,
 				Errors:       errorsN,
+				BundlesBy300: sqlBundlesBy300,
 				BundlesBy350: sqlBundlesBy350,
 				BundlesBy500: sqlBundlesBy500,
 				CompletedAt:  completedNs,
@@ -751,14 +762,15 @@ func (state *EventState) recordSQLSuccess(queryMS float64) {
 	state.SQLMu.Unlock()
 }
 
-func (state *EventState) sqlOnlyTimings(templateCount int) (float64, float64, int64, int64) {
+func (state *EventState) sqlOnlyTimings(templateCount int) (float64, float64, int64, int64, int64) {
 	state.SQLMu.Lock()
 	successMS := append([]float64(nil), state.SQLSuccessMS...)
 	state.SQLMu.Unlock()
 	return sqlOnlyTimingsFromSuccessMS(successMS, templateCount)
 }
 
-func sqlOnlyTimingsFromSuccessMS(successMS []float64, templateCount int) (float64, float64, int64, int64) {
+func sqlOnlyTimingsFromSuccessMS(successMS []float64, templateCount int) (float64, float64, int64, int64, int64) {
+	bundlesBy300 := int64(countLE(successMS, 300))
 	bundlesBy350 := int64(countLE(successMS, 350))
 	bundlesBy500 := int64(countLE(successMS, 500))
 	score60MS := -1.0
@@ -770,10 +782,10 @@ func sqlOnlyTimingsFromSuccessMS(successMS []float64, templateCount int) (float6
 	if len(successMS) == templateCount {
 		full65MS = successMS[len(successMS)-1]
 	}
-	return score60MS, full65MS, bundlesBy350, bundlesBy500
+	return score60MS, full65MS, bundlesBy300, bundlesBy350, bundlesBy500
 }
 
-func sqlOnlyEventTimings(outcomes []QueryOutcome, templateCount int) (float64, float64, int64, int64) {
+func sqlOnlyEventTimings(outcomes []QueryOutcome, templateCount int) (float64, float64, int64, int64, int64) {
 	successMS := make([]float64, 0, len(outcomes))
 	for _, out := range outcomes {
 		if out.Success {
@@ -921,7 +933,7 @@ func runOneEventFanout(
 	wg.Wait()
 	metrics.recordBatch(outcomes)
 	completedNs := time.Now().UnixNano()
-	sqlScore60MS, sqlFull65MS, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
+	sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
 	score60MS := -1.0
 	if scoreNs := atomic.LoadInt64(&score60Ns); scoreNs > 0 {
 		score60MS = float64(scoreNs-eventStartNs) / 1e6
@@ -944,6 +956,7 @@ func runOneEventFanout(
 		SQLFull65MS:  sqlFull65MS,
 		Successes:    successesN,
 		Errors:       atomic.LoadInt64(&errorsN),
+		BundlesBy300: sqlBundlesBy300,
 		BundlesBy350: sqlBundlesBy350,
 		BundlesBy500: sqlBundlesBy500,
 		CompletedAt:  completedNs,
@@ -1286,7 +1299,7 @@ func runOneEventConnFanout(
 	wg.Wait()
 	metrics.recordBatch(outcomes)
 	completedNs := time.Now().UnixNano()
-	sqlScore60MS, sqlFull65MS, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
+	sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
 	score60MS := -1.0
 	if scoreNs := atomic.LoadInt64(&score60Ns); scoreNs > 0 {
 		score60MS = float64(scoreNs-eventStartNs) / 1e6
@@ -1309,6 +1322,7 @@ func runOneEventConnFanout(
 		SQLFull65MS:  sqlFull65MS,
 		Successes:    successesN,
 		Errors:       atomic.LoadInt64(&errorsN),
+		BundlesBy300: sqlBundlesBy300,
 		BundlesBy350: sqlBundlesBy350,
 		BundlesBy500: sqlBundlesBy500,
 		CompletedAt:  completedNs,
@@ -1548,6 +1562,7 @@ func topTailDrivers(bundleSummaries map[string]Summary, limit int) []BundleTailR
 			P99:      s.P99,
 			P999:     s.P999,
 			Max:      s.Max,
+			Over300:  s.Over300,
 			Over350:  s.Over350,
 			Over500:  s.Over500,
 		})
@@ -1560,6 +1575,7 @@ func buildCustomerReport(
 	stats RunStats,
 	sqlScore60MS []float64,
 	sqlFull65MS []float64,
+	bundlesBy300 []float64,
 	bundlesBy350 []float64,
 	bundlesBy500 []float64,
 	bundleSummaries map[string]Summary,
@@ -1575,10 +1591,12 @@ func buildCustomerReport(
 		CompletedEvents: totalEvents,
 		SQLOnlySLA: map[string]map[string]CountRate{
 			"score_ready_60_of_65": {
+				"300ms": countRate(sqlScore60MS, 300, totalEvents, stats.Elapsed),
 				"350ms": countRate(sqlScore60MS, 350, totalEvents, stats.Elapsed),
 				"500ms": countRate(sqlScore60MS, 500, totalEvents, stats.Elapsed),
 			},
 			"full_65_of_65": {
+				"300ms": countRate(sqlFull65MS, 300, totalEvents, stats.Elapsed),
 				"350ms": countRate(sqlFull65MS, 350, totalEvents, stats.Elapsed),
 				"500ms": countRate(sqlFull65MS, 500, totalEvents, stats.Elapsed),
 			},
@@ -1593,6 +1611,7 @@ func buildCustomerReport(
 				Histogram: latencyHistogram(sqlFull65MS, totalEvents),
 			},
 		},
+		AvgBundlesBy300MS: summarize(bundlesBy300).Avg,
 		AvgBundlesBy350MS: summarize(bundlesBy350).Avg,
 		AvgBundlesBy500MS: summarize(bundlesBy500).Avg,
 		Realism:           buildRealismReport(workload, eventsToRun, totalEvents, eventOffset, eventStride, cacheState, cacheNote),
@@ -1605,7 +1624,7 @@ func printCountRate(label string, count CountRate) {
 }
 
 func printHistogram(label string, hist map[string]int) {
-	order := []string{"0-50ms", "50-100ms", "100-150ms", "150-200ms", "200-350ms", "350-500ms", ">500/error"}
+	order := []string{"0-50ms", "50-100ms", "100-150ms", "150-200ms", "200-300ms", "300-350ms", "350-500ms", ">500/error"}
 	fmt.Printf("  %s", label)
 	for _, bucket := range order {
 		fmt.Printf(" %s=%d", bucket, hist[bucket])
@@ -1619,11 +1638,14 @@ func printCustomerReport(report CustomerReport) {
 	fmt.Printf("latency_scope=%s\n", report.LatencyScope)
 	fmt.Printf("completed_events=%d\n", report.CompletedEvents)
 	fmt.Println("sql_only_sla")
+	printCountRate("score_ready_60 <=300ms", report.SQLOnlySLA["score_ready_60_of_65"]["300ms"])
 	printCountRate("score_ready_60 <=350ms", report.SQLOnlySLA["score_ready_60_of_65"]["350ms"])
 	printCountRate("score_ready_60 <=500ms", report.SQLOnlySLA["score_ready_60_of_65"]["500ms"])
+	printCountRate("full_65 <=300ms", report.SQLOnlySLA["full_65_of_65"]["300ms"])
 	printCountRate("full_65 <=350ms", report.SQLOnlySLA["full_65_of_65"]["350ms"])
 	printCountRate("full_65 <=500ms", report.SQLOnlySLA["full_65_of_65"]["500ms"])
-	fmt.Printf("avg_bundles_by_350ms=%.2f avg_bundles_by_500ms=%.2f\n", report.AvgBundlesBy350MS, report.AvgBundlesBy500MS)
+	fmt.Printf("avg_bundles_by_300ms=%.2f avg_bundles_by_350ms=%.2f avg_bundles_by_500ms=%.2f\n",
+		report.AvgBundlesBy300MS, report.AvgBundlesBy350MS, report.AvgBundlesBy500MS)
 	fmt.Println("sql_only_latency")
 	for _, name := range []string{"score_ready_60_of_65", "full_65_of_65"} {
 		s := report.SQLOnlyLatency[name].Summary
@@ -1655,8 +1677,8 @@ func printCustomerReport(report CustomerReport) {
 	}
 	fmt.Println("tail_drivers_by_bundle_p999")
 	for i, item := range report.TailDrivers {
-		fmt.Printf("  %2d %-20s n=%d p95=%.1f p99=%.1f p999=%.1f max=%.1f >350=%d >500=%d\n",
-			i+1, item.BundleID, item.N, item.P95, item.P99, item.P999, item.Max, item.Over350, item.Over500)
+		fmt.Printf("  %2d %-20s n=%d p95=%.1f p99=%.1f p999=%.1f max=%.1f >300=%d >350=%d >500=%d\n",
+			i+1, item.BundleID, item.N, item.P95, item.P99, item.P999, item.Max, item.Over300, item.Over350, item.Over500)
 	}
 }
 
@@ -1689,10 +1711,14 @@ func emitResult(
 	full65MS := make([]float64, 0, len(stats.EventResults))
 	sqlScore60MS := make([]float64, 0, len(stats.EventResults))
 	sqlFull65MS := make([]float64, 0, len(stats.EventResults))
+	bundlesBy300 := make([]float64, 0, len(stats.EventResults))
 	bundlesBy350 := make([]float64, 0, len(stats.EventResults))
 	bundlesBy500 := make([]float64, 0, len(stats.EventResults))
 	for _, result := range stats.EventResults {
 		eventMS = append(eventMS, result.MS)
+		if result.BundlesBy300 >= 0 {
+			bundlesBy300 = append(bundlesBy300, float64(result.BundlesBy300))
+		}
 		if result.BundlesBy350 >= 0 {
 			bundlesBy350 = append(bundlesBy350, float64(result.BundlesBy350))
 		}
@@ -1724,7 +1750,7 @@ func emitResult(
 	if stats.Elapsed.Seconds() > 0 {
 		completedEPS = float64(len(stats.EventResults)) / stats.Elapsed.Seconds()
 	}
-	customerReport := buildCustomerReport(workload, stats, sqlScore60MS, sqlFull65MS, bundlesBy350, bundlesBy500, bundleSummaries, eventsToRun, eventOffset, eventStride, cacheState, cacheNote)
+	customerReport := buildCustomerReport(workload, stats, sqlScore60MS, sqlFull65MS, bundlesBy300, bundlesBy350, bundlesBy500, bundleSummaries, eventsToRun, eventOffset, eventStride, cacheState, cacheNote)
 	result := Result{
 		StartedAtUnix:      float64(stats.Started.UnixNano()) / 1e9,
 		ElapsedSeconds:     stats.Elapsed.Seconds(),
@@ -1766,6 +1792,7 @@ func emitResult(
 			"prepare_runtime":               summarize(stats.PrepareMS),
 			"db_exec":                       summarize(stats.ExecMS),
 			"result_drain":                  summarize(stats.DrainMS),
+			"bundles_by_300ms":              summarize(bundlesBy300),
 			"bundles_by_350ms":              summarize(bundlesBy350),
 			"bundles_by_500ms":              summarize(bundlesBy500),
 		},
@@ -1785,10 +1812,10 @@ func emitResult(
 	}
 	for _, name := range []string{"event_completion", "full_65_of_65", "score_ready_60_of_65", "sql_only_full_65_of_65", "sql_only_score_ready_60_of_65", "query_runtime", "task_queue", "prepare_runtime", "db_exec", "result_drain"} {
 		s := result.Summaries[name]
-		fmt.Printf("%-22s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f >350=%d >500=%d\n",
-			name, s.N, s.P50, s.P95, s.P99, s.P999, s.Max, s.Over350, s.Over500)
+		fmt.Printf("%-22s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f >300=%d >350=%d >500=%d\n",
+			name, s.N, s.P50, s.P95, s.P99, s.P999, s.Max, s.Over300, s.Over350, s.Over500)
 	}
-	for _, name := range []string{"bundles_by_350ms", "bundles_by_500ms"} {
+	for _, name := range []string{"bundles_by_300ms", "bundles_by_350ms", "bundles_by_500ms"} {
 		s := result.Summaries[name]
 		fmt.Printf("%-22s n=%d avg=%.2f p50=%.1f p95=%.1f p99=%.1f max=%.1f\n",
 			name, s.N, s.Avg, s.P50, s.P95, s.P99, s.Max)

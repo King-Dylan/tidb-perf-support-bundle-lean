@@ -54,6 +54,7 @@ def summarize(values: list[float]) -> dict[str, float | int]:
         "p999": percentile(clean, 99.9),
         "avg": sum(clean) / len(clean),
         "max": max(clean),
+        "over_300": sum(1 for v in clean if v > 300),
         "over_350": sum(1 for v in clean if v > 350),
         "over_500": sum(1 for v in clean if v > 500),
     }
@@ -65,7 +66,8 @@ def histogram(values: list[float], total_events: int) -> dict[str, int]:
         "50-100ms": 0,
         "100-150ms": 0,
         "150-200ms": 0,
-        "200-350ms": 0,
+        "200-300ms": 0,
+        "300-350ms": 0,
         "350-500ms": 0,
         ">500/error": 0,
     }
@@ -82,8 +84,10 @@ def histogram(values: list[float], total_events: int) -> dict[str, int]:
             buckets["100-150ms"] += 1
         elif value <= 200:
             buckets["150-200ms"] += 1
+        elif value <= 300:
+            buckets["200-300ms"] += 1
         elif value <= 350:
-            buckets["200-350ms"] += 1
+            buckets["300-350ms"] += 1
         elif value <= 500:
             buckets["350-500ms"] += 1
         else:
@@ -97,7 +101,8 @@ def print_summary_line(label: str, summary: dict[str, float | int]) -> None:
         f"{label:<28s} n={summary.get('n', 0)} "
         f"p50={summary.get('p50', 0):.1f} p95={summary.get('p95', 0):.1f} "
         f"p99={summary.get('p99', 0):.1f} p999={summary.get('p999', 0):.1f} "
-        f"max={summary.get('max', 0):.1f} >350={summary.get('over_350', 0)} >500={summary.get('over_500', 0)}"
+        f"max={summary.get('max', 0):.1f} >300={summary.get('over_300', 0)} "
+        f">350={summary.get('over_350', 0)} >500={summary.get('over_500', 0)}"
     )
 
 
@@ -107,6 +112,7 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
     total_events = len(event_rows)
     sql_score60 = [float(row.get("sql_score60_ms", -1)) for row in event_rows]
     sql_full65 = [float(row.get("sql_full65_ms", -1)) for row in event_rows]
+    bundles_300 = [float(row.get("bundles_by_300_ms", -1)) for row in event_rows if float(row.get("bundles_by_300_ms", -1)) >= 0]
     bundles_350 = [float(row.get("bundles_by_350_ms", -1)) for row in event_rows if float(row.get("bundles_by_350_ms", -1)) >= 0]
     bundles_500 = [float(row.get("bundles_by_500_ms", -1)) for row in event_rows if float(row.get("bundles_by_500_ms", -1)) >= 0]
     event_mix = Counter(str(row.get("kind") or "<empty>") for row in event_rows)
@@ -121,13 +127,14 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
         for bundle_id, summary in result.get("bundle_summaries", {}).items():
             row = tail_by_bundle.setdefault(
                 bundle_id,
-                {"bundle_id": bundle_id, "n": 0, "p95": 0.0, "p99": 0.0, "p999": 0.0, "max": 0.0, "over_350": 0, "over_500": 0},
+                {"bundle_id": bundle_id, "n": 0, "p95": 0.0, "p99": 0.0, "p999": 0.0, "max": 0.0, "over_300": 0, "over_350": 0, "over_500": 0},
             )
             row["n"] = int(row["n"]) + int(summary.get("n", 0))
             row["p95"] = max(float(row["p95"]), float(summary.get("p95", 0.0)))
             row["p99"] = max(float(row["p99"]), float(summary.get("p99", 0.0)))
             row["p999"] = max(float(row["p999"]), float(summary.get("p999", 0.0)))
             row["max"] = max(float(row["max"]), float(summary.get("max", 0.0)))
+            row["over_300"] = int(row["over_300"]) + int(summary.get("over_300", 0))
             row["over_350"] = int(row["over_350"]) + int(summary.get("over_350", 0))
             row["over_500"] = int(row["over_500"]) + int(summary.get("over_500", 0))
     tail_drivers = sorted(
@@ -151,13 +158,14 @@ def aggregate_result_jsons(paths: list[Path]) -> dict[str, object]:
         "elapsed_seconds": elapsed,
         "completed_eps": (total_events / elapsed) if elapsed else 0.0,
         "sql_only_sla": {
-            "score_ready_60_of_65": {"350ms": count_rate(sql_score60, 350), "500ms": count_rate(sql_score60, 500)},
-            "full_65_of_65": {"350ms": count_rate(sql_full65, 350), "500ms": count_rate(sql_full65, 500)},
+            "score_ready_60_of_65": {"300ms": count_rate(sql_score60, 300), "350ms": count_rate(sql_score60, 350), "500ms": count_rate(sql_score60, 500)},
+            "full_65_of_65": {"300ms": count_rate(sql_full65, 300), "350ms": count_rate(sql_full65, 350), "500ms": count_rate(sql_full65, 500)},
         },
         "sql_only_latency": {
             "score_ready_60_of_65": {"summary": summarize(sql_score60), "histogram": histogram(sql_score60, total_events)},
             "full_65_of_65": {"summary": summarize(sql_full65), "histogram": histogram(sql_full65, total_events)},
         },
+        "avg_bundles_by_300_ms": (sum(bundles_300) / len(bundles_300)) if bundles_300 else 0.0,
         "avg_bundles_by_350_ms": (sum(bundles_350) / len(bundles_350)) if bundles_350 else 0.0,
         "avg_bundles_by_500_ms": (sum(bundles_500) / len(bundles_500)) if bundles_500 else 0.0,
         "test_realism": {
@@ -179,10 +187,14 @@ def print_fleet_customer_report(report: dict[str, object]) -> None:
     print(f"completed_events={report['completed_events']} completed_eps={report['completed_eps']:.2f}")
     sla = report["sql_only_sla"]
     for name in ("score_ready_60_of_65", "full_65_of_65"):
-        for cutoff in ("350ms", "500ms"):
+        for cutoff in ("300ms", "350ms", "500ms"):
             row = sla[name][cutoff]
             print(f"  {name} <= {cutoff}: events={row['events']} pct={row['percent']:.2f}% eps={row['eps']:.2f}")
-    print(f"avg_bundles_by_350ms={report['avg_bundles_by_350_ms']:.2f} avg_bundles_by_500ms={report['avg_bundles_by_500_ms']:.2f}")
+    print(
+        f"avg_bundles_by_300ms={report['avg_bundles_by_300_ms']:.2f} "
+        f"avg_bundles_by_350ms={report['avg_bundles_by_350_ms']:.2f} "
+        f"avg_bundles_by_500ms={report['avg_bundles_by_500_ms']:.2f}"
+    )
     for name, detail in report["sql_only_latency"].items():
         print_summary_line(name, detail["summary"])
         print(f"  {name}_histogram {detail['histogram']}")
@@ -207,7 +219,7 @@ def print_fleet_customer_report(report: dict[str, object]) -> None:
         print(
             f"  {index:2d} {row['bundle_id']:<20s} n={row['n']} p95={row['p95']:.1f} "
             f"p99={row['p99']:.1f} p999={row['p999']:.1f} max={row['max']:.1f} "
-            f">350={row['over_350']} >500={row['over_500']}"
+            f">300={row['over_300']} >350={row['over_350']} >500={row['over_500']}"
         )
 
 
