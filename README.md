@@ -50,7 +50,8 @@ This bundle intentionally excludes older experiment helpers and the separate `ru
 - Group C runtime joins include timestamp filters on both tables.
 - Python mixed-benchmark per-query cutoff: `READ_MAX_EXECUTION_TIME_MS=500`.
   The Go fleet SLA runs below use `--max-execution-time-ms 0` and calculate
-  350ms/500ms SLA from observed completion times instead of killing queries.
+  300ms/350ms/500ms SLA from observed completion times instead of killing
+  queries.
 - Background writes are enabled by default in the mixed benchmark.
 
 ## Event QPS Target
@@ -77,7 +78,7 @@ fleet test. The run shape was:
 - target `1000 events/sec`, with `65` independent bundle SQLs per event
 - target SQL command shape: about `65,000` bundle SQL executions/sec
 - long-lived connections with prepared statements, using `--execution-mode
-  event-fanout`, `--prepare-all`, and `--max-execution-time-ms 0`
+  conn-fanout`, `--prepare-all`, and `--max-execution-time-ms 0`
 
 The screenshot is a database-side reference for SQL-command throughput,
 TiDB-side query duration, and cluster resource headroom during that run.
@@ -199,36 +200,107 @@ validation and detailed per-bundle diagnostics, but the Go path is the current
 load-test path because it removes Python/GIL/future scheduling from the hot
 path.
 
-Current official mode for fleet tests:
+Recommended customer-facing mode for future fleet tests:
 
-- `--execution-mode event-fanout`
-- 1 event submits all 65 bundle SQLs concurrently.
-- The Go process uses a prewarmed `database/sql` pool with long-lived TiDB
+- `--execution-mode conn-fanout`
+- 1 event submits all 65 bundle SQLs concurrently, but each bundle execution
+  checks out one prewarmed connection slot instead of relying on lazy
+  `database/sql` pool assignment inside `QueryContext`.
+- The Go process uses fixed connection-owner slots with long-lived TiDB
   connections.
 - `MaxOpenConns` and `MaxIdleConns` are both set from `--connections`.
-- `--prepare-all` prepares all 65 SQL templates before the timed window.
+- `--prepare-all` prepares all 65 SQL templates on every physical connection
+  before the timed window.
 - `--target-event-eps` plus `--duration` creates a steady-rate test instead of
   one burst batch.
+- Per-event results are saved by default. Keep `--omit-event-results=false` for
+  a final customer-facing run so the raw event-level `full_65_of_65`,
+  `score_ready_60_of_65`, `sql_full65_ms`, `sql_score60_ms`, and
+  `bundles_by_300_ms` / `bundles_by_350_ms` / `bundles_by_500_ms` records are
+  preserved.
+- Fleet runs shard the workload by default with `--event-offset` and
+  `--event-stride`, so 16 app processes cover a large event pool instead of all
+  replaying the same first slice. Use `--no-shard-workload` only for a deliberate
+  cache-reuse experiment.
+- Set `--cache-state` and `--cache-note` on every final run. Use labels such as
+  `warm`, `cold`, `restarted`, or `unknown`; the label is stored under
+  `customer_report.test_realism`.
 - `--max-execution-time-ms 0`, `--read-timeout 0s`, and `--query-timeout 0s`
   are used for SLA validation. Do not kill tail SQLs during the main run; use
-  the output summaries to calculate 350ms/500ms SLA. Cutoff tests are useful for
-  fallback experiments but they can create `Failed Query OPM` noise.
+  the output summaries to calculate 300ms/350ms/500ms SLA. Cutoff tests are
+  useful for fallback experiments but they can create `Failed Query OPM` noise.
+- The output splits client and database path timing into `task_queue`,
+  `prepare_runtime`, `db_exec`, `result_drain`, and `query_runtime`
+  (`db_exec + result_drain`). This keeps app-side waiting separate from
+  TiDB-facing execution timing.
+- The output reports benchmark-harness event wall-clock latency as the
+  customer-facing SLA scope:
+  `full_65_of_65` stops when all 65 bundle SQLs have succeeded, and
+  `score_ready_60_of_65` stops when the 60th bundle succeeds. This includes the
+  Go harness fan-out/fan-in path and is the number used in
+  `customer_report.event_sla`.
+- The output also reports SQL-only diagnostic latency:
+  `sql_only_full_65_of_65` is the max SQL runtime across the successful 65
+  bundle queries for an event, and `sql_only_score_ready_60_of_65` is the 60th
+  fastest successful SQL runtime. Use these only for database-side diagnosis
+  and Grafana/TiDB-duration comparison.
+- Every run prints a `CUSTOMER EVENT WALL-CLOCK REPORT` and stores the same data
+  under `customer_report` in the result JSON. The Markdown fleet report is the
+  customer-facing view: SLA counts, latency histograms, average bundles returned
+  by 300ms/350ms/500ms, workload realism, binding skew, and tail-driver bundles
+  are calculated from benchmark-harness event wall-clock latency. SQL-only
+  numbers are included side by side as diagnostics.
+- Histogram buckets are `0-50ms`, `50-100ms`, `100-150ms`, `150-200ms`,
+  `200-300ms`, `300-350ms`, `350-500ms`, and `>500/error`.
 
-### 1. Generate a Static Workload
+### 0. Build a 300K Source Event Sample
 
-Generate the static Go workload from the optimized prod180 path. This keeps
-`1d`, `7d`, `30d`, and `90d` windows on the base tables and uses the 180d
-prod180 pre-agg tables for the 180d features.
+For the next customer-facing 1000 EPS run, do not reuse the old 1000-event
+sample. For a 5-minute run at 1000 EPS, build a source-event pool close to
+300K rows with as many unique full 8-field binding sets as the source data can
+provide. This matches the customer request more closely than the earlier 1K or
+30K engineering/debug pools.
+
+One way to create the source sample is to run the Python sampler with unique
+events required. Tune `--normal-events` and `--hot-events-per-field` based on
+the target hot-key mix and how many hot values the database can provide:
+
+```bash
+cd code
+cp ../connection/.db_config.json .db_config.json
+
+.venv/bin/python mixed_traffic_test.py \
+  --duration 60 \
+  --read-rate 1000 \
+  --hot-event-pct 0.05 \
+  --normal-events 285000 \
+  --hot-events-per-field 2000 \
+  --unique-events-required \
+  --summary-only \
+  --no-writes \
+  --skip-initial-warmup
+```
+
+The script writes `results/mixed_traffic_<timestamp>.json`. Use that file as
+the `--reuse-events-json` input in the next step. If the sampler cannot provide
+enough unique normal/hot events, it fails instead of silently cycling keys.
+
+### 1. Generate a Static 300K Go Workload
+
+Generate the static Go workload from the optimized path. This keeps runtime
+windows on the base tables and overlays exact wide serving for the selected
+180d bundles.
 
 ```bash
 cd code
 cp ../connection/.db_config.json .db_config.json
 
 .venv/bin/python generate_go_workload.py \
-  --reuse-events-json results/mixed_traffic_1780349424.json \
-  --output results/go_workload_1000_hybrid_prod180_180d_serving_wide_paramwin.json \
-  --events 1000 \
+  --reuse-events-json results/mixed_traffic_<timestamp>.json \
+  --output results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
+  --events 300000 \
   --hot-event-pct 0.05 \
+  --unique-events-required \
   --preagg-mode hybrid \
   --preagg-layout prod180 \
   --serving-as-of-grain day \
@@ -236,13 +308,19 @@ cp ../connection/.db_config.json .db_config.json
 ```
 
 This writes one JSON file containing the rendered SQL templates and
-event-specific parameters for `1000 * 65` bundle executions. The Go hot path
-does not import Python or render SQL.
+event-specific parameters for `300000 * 65` bundle executions. The Go hot path
+does not import Python or render SQL. The generated JSON also includes
+`event_selection` and `workload_stats`, including unique source event count,
+unique full binding-set count, event mix, hot-field mix, hot-key values, and
+distinct/max-repeat per binding field.
 
-For sustained capacity probes, `--events` on the Go client may be larger than
-the generated event sample; the client cycles through the static sample by
-event index.  Use this to keep the database under load long enough to inspect
-dashboard and processlist behavior.
+For a final realism run, keep `--unique-events-required`; this makes the
+generator fail if the source sample is too small. The final report should
+disclose the generated pool size, executed unique source events, executed unique
+binding-set count, max row repeat, and whether any sampling/cycling occurred.
+
+Large workloads are intentionally not committed to git. Keep them under
+`code/results/` on the EC2 clients or copy them through S3/rsync as needed.
 
 ### 2. Build the Go Client
 
@@ -277,7 +355,7 @@ scp -i "$KEY" -o StrictHostKeyChecking=no \
   "$REMOTE":~/tidb-perf-support-bundle-lean/code/go-loadgen/
 
 scp -i "$KEY" -o StrictHostKeyChecking=no \
-  code/results/go_workload_1000_hybrid_prod180_180d_serving_wide_paramwin.json \
+  code/results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
   "$REMOTE":~/tidb-perf-support-bundle-lean/code/results/
 ```
 
@@ -293,15 +371,18 @@ cd ~/tidb-perf-support-bundle-lean/code
 ulimit -n 30000
 
 ./go-loadgen/go-loadgen-linux-amd64 \
-  --workload results/go_workload_1000_hybrid_prod180_180d_serving_wide_paramwin.json \
+  --workload results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
   --db-config .db_config.json \
-  --output results/go_loadgen_smoke_100e_200c_eventfanout.json \
+  --output results/go_loadgen_smoke_1000e_200c_connfanout.json \
   --events 1000 \
   --connections 200 \
   --read-timeout 0s \
   --query-timeout 0s \
   --max-execution-time-ms 0 \
-  --execution-mode event-fanout \
+  --execution-mode conn-fanout \
+  --event-sampling random \
+  --event-random-seed 20260625 \
+  --cache-state unknown \
   --prepare-all
 ```
 
@@ -311,7 +392,7 @@ Use the fleet runner when testing 1000 events/sec. Each remote host must already
 have:
 
 - `~/tidb-perf-support-bundle-lean/code/go-loadgen/go-loadgen-linux-amd64`
-- `~/tidb-perf-support-bundle-lean/code/results/go_workload_1000_hybrid_prod180_180d_serving_wide_paramwin.json`
+- `~/tidb-perf-support-bundle-lean/code/results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json`
 - `~/tidb-perf-support-bundle-lean/code/.db_config.json`
 
 Create a host file with one EC2 client per line. The June 2 run used 8 EC2
@@ -333,26 +414,35 @@ HOSTS
 Run from the repo root:
 
 ```bash
-prefix="go_fleet16_8host_eventfanout_1000eps_3000c_600s_no_maxexec_$(date +%s)"
+prefix="go_fleet16_8host_connfanout_1000eps_3000c_300s_300k_unique_steady3m_$(date +%s)"
 
 python3 code/run_go_loadgen_fleet.py \
   --hosts "$(paste -sd, /tmp/codex_go_hosts8.txt)" \
   --ssh-key /path/to/rp-us-west-2.pem \
   --remote-dir '~/tidb-perf-support-bundle-lean/code' \
-  --workload results/go_workload_1000_hybrid_prod180_180d_serving_wide_paramwin.json \
+  --workload results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
   --db-config .db_config.json \
-  --events-total 1000000 \
+  --events-total 300000 \
   --connections-total 3000 \
   --processes-per-host 2 \
   --setup-timeout 1200s \
   --read-timeout 0s \
   --query-timeout 0s \
   --max-execution-time-ms 0 \
-  --execution-mode event-fanout \
+  --execution-mode conn-fanout \
   --target-event-eps 1000 \
-  --duration 600s \
+  --duration 300s \
   --max-pending-events 3000 \
+  --event-sampling random \
+  --event-random-seed 20260625 \
+  --report-window-start 1m \
+  --report-window-duration 3m \
   --start-delay-seconds 30 \
+  --omit-event-results=false \
+  --shard-workload \
+  --fetch-results \
+  --cache-state warm \
+  --cache-note "cluster was not restarted before this run" \
   --prepare-all \
   --output-prefix "$prefix" | tee "results/${prefix}.log"
 ```
@@ -363,6 +453,18 @@ This layout means:
 - 2 Go processes per EC2 instance, so 16 load-generator app processes
 - target `1000 events/sec / 16 = 62.5 events/sec` per app process
 - 65 SQLs per event, so target `65,000 SQL/sec` total
+- `300,000` submitted events over 5 minutes
+- the fleet runner passes `--event-offset` and `--event-stride` to each Go
+  process by default, and `--event-sampling random` makes each process randomly
+  sample from the 300K workload pool using a deterministic seed
+- the customer-facing report above uses the stable 3-minute window from
+  `--report-window-start 1m --report-window-duration 3m`, excluding connection
+  warmup, prepare, autoscale ramp-up, and end-of-run drain
+- the fleet runner fetches each remote Go result JSON by default and writes a
+  merged `fleet_customer_report` into `results/${prefix}_summary.json`
+- the fleet runner also writes a human-readable
+  `results/${prefix}_customer_report.md`; this is the customer-facing report
+  that aggregates all EC2/app-process result files
 - `3000` requested connections total; the runner rounded this to `188`
   connections per process, or about `3008` pool slots total
 - the 10-minute run reported `Workers ready=186-188/188` per process
@@ -375,8 +477,15 @@ The Go output prints and stores these key summaries:
   before the timed run starts.
 - `completed_eps`: events completed, including events with query errors.
 - `full65_eps`: events where all 65 bundle SQLs succeeded.
-- Primary SLA EPS: events where `full_65_of_65 <= 350ms`.
-- Fallback SLA EPS: events where `score_ready_60_of_65 <= 500ms`.
+- Customer-facing primary/fallback SLA: use `customer_report.event_sla`.
+  These numbers are based on benchmark-harness event wall-clock
+  `full_65_of_65` and `score_ready_60_of_65`, including the Go harness
+  fan-out/fan-in path.
+- Database-side diagnostics: `customer_report.sql_only_sla`,
+  `sql_only_full_65_of_65`, and `sql_only_score_ready_60_of_65` are still
+  emitted for comparison with TiDB/Grafana SQL duration. Do not present these as
+  the customer-facing event SLA unless the customer explicitly asks for
+  SQL-only timing.
 - `event_completion`: wall time from event submission until all 65 bundle tasks
   finish.
 - `full_65_of_65`: completion time only for events where every bundle succeeded.
@@ -388,13 +497,27 @@ The Go output prints and stores these key summaries:
   picked up the SQL.  If this is high while `query_runtime` is low, add client
   workers/connections.  If `query_runtime` rises under load, the bottleneck is no
   longer Python/client scheduling.
+- `customer_report.test_realism.binding_fields` is populated only when the
+  workload JSON includes event bindings. Regenerate the workload with the
+  current `generate_go_workload.py` before a final run to include binding
+  distinct/max-repeat statistics.
+- `fleet_customer_report` in the fleet summary merges all fetched Go result
+  files. Event-level SLA and histograms are exact across all app processes
+  because they are calculated from saved `event_results`. Tail-driver p999 is
+  reported as the maximum worker-level p999 for each bundle; exact global
+  per-bundle p999 would require retaining every bundle execution row.
+- `results/${prefix}_customer_report.md` is the Markdown version intended for
+  sharing. It follows the older customer-readable layout: Test Shape, Binding
+  Reuse / Test Realism, Event Mix, Runtime vs Pre-Agg / Serving Bundle Counts,
+  Hot-Key Values Used, Event Latency, 60/65 and 65/65 SLA view, and Tail / Miss
+  Drivers.
 
 ## Client-Side Diagnostics
 
 The packaged `mixed_traffic_test.py` records:
 
 - event-level fan-out capacity: target bundle SQL/sec, client bundle slots,
-  and 350/500ms slot requirements
+  and 300/350/500ms slot requirements
 - bundle task queue average/max per event
 - DB connection wait average/max per event
 
