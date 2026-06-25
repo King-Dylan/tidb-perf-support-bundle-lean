@@ -61,12 +61,12 @@ def binding_field_stats(events: list[dict[str, Any]]) -> dict[str, dict[str, Any
     return stats
 
 
-def workload_event_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
+def workload_event_stats(events: list[dict[str, Any]], profile: dict[str, Any] | None = None) -> dict[str, Any]:
     unique_source_events = {source_event_key(event, idx) for idx, event in enumerate(events)}
     unique_binding_sets = {full_binding_key(event) for event in events}
     event_mix = Counter(str(event.get("kind") or "<empty>") for event in events)
     hot_field_mix = Counter(str(event.get("hot_field") or "<empty>") for event in events)
-    return {
+    out = {
         "event_rows": len(events),
         "unique_source_events": len(unique_source_events),
         "unique_binding_sets": len(unique_binding_sets),
@@ -74,6 +74,9 @@ def workload_event_stats(events: list[dict[str, Any]]) -> dict[str, Any]:
         "hot_field_mix": dict(sorted(hot_field_mix.items())),
         "binding_fields": binding_field_stats(events),
     }
+    if isinstance(profile, dict) and isinstance(profile.get("hot_fields"), dict):
+        out["hot_values"] = profile["hot_fields"]
+    return out
 
 
 def select_events(
@@ -346,7 +349,7 @@ def main() -> None:
         "runtime_window_param_bundle_count": len(runtime_window_param_bundles),
         "tiflash_mpp_bundles": sorted(tiflash_mpp_bundles),
         "event_selection": selection_metadata,
-        "workload_stats": workload_event_stats(events),
+        "workload_stats": workload_event_stats(events, payload.get("profile")),
         "templates": templates,
         "events": workload_events,
     }
