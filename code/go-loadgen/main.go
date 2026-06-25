@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -21,11 +23,16 @@ import (
 )
 
 type DBConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	User     string `json:"user"`
-	Password string `json:"password"`
-	Database string `json:"database"`
+	Host     string     `json:"host"`
+	Port     int        `json:"port"`
+	User     string     `json:"user"`
+	Password string     `json:"password"`
+	Database string     `json:"database"`
+	SSL      *SSLConfig `json:"ssl,omitempty"`
+}
+
+type SSLConfig struct {
+	CA string `json:"ca,omitempty"`
 }
 
 type Template struct {
@@ -470,7 +477,31 @@ func bindingStats(values map[string]map[string]int) map[string]BindingFieldStats
 	return out
 }
 
-func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, writeTimeout time.Duration, isolation string, maxExecMS int) string {
+func registerTLSConfig(cfg DBConfig) (string, error) {
+	if cfg.SSL == nil || cfg.SSL.CA == "" {
+		return "", nil
+	}
+	pem, err := os.ReadFile(cfg.SSL.CA)
+	if err != nil {
+		return "", fmt.Errorf("read ssl ca %s: %w", cfg.SSL.CA, err)
+	}
+	roots := x509.NewCertPool()
+	if ok := roots.AppendCertsFromPEM(pem); !ok {
+		return "", fmt.Errorf("ssl ca %s did not contain a PEM certificate", cfg.SSL.CA)
+	}
+	name := "tidb-verify-identity"
+	tlsConfig := &tls.Config{
+		RootCAs:    roots,
+		ServerName: cfg.Host,
+		MinVersion: tls.VersionTLS12,
+	}
+	if err := mysql.RegisterTLSConfig(name, tlsConfig); err != nil && !strings.Contains(err.Error(), "already registered") {
+		return "", err
+	}
+	return name, nil
+}
+
+func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, writeTimeout time.Duration, isolation string, maxExecMS int, tlsConfigName string) string {
 	c := mysql.NewConfig()
 	c.User = cfg.User
 	c.Passwd = cfg.Password
@@ -481,6 +512,9 @@ func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, wr
 	c.Timeout = timeout
 	c.ReadTimeout = readTimeout
 	c.WriteTimeout = writeTimeout
+	if tlsConfigName != "" {
+		c.TLSConfig = tlsConfigName
+	}
 	c.Params = map[string]string{
 		"charset":   "utf8mb4",
 		"parseTime": "true",
@@ -664,13 +698,13 @@ func worker(
 				}
 				execStarted := time.Now()
 				rows, qerr := stmt.QueryContext(qctx, task.Params...)
-				cancel()
 				execMS = elapsedMS(execStarted)
 				if qerr == nil {
 					drainStarted := time.Now()
 					qerr = fetchRows(rows)
 					drainMS = elapsedMS(drainStarted)
 				}
+				cancel()
 				if qerr == nil {
 					success = true
 				} else {
@@ -885,13 +919,13 @@ func runOneEventFanout(
 					}
 					execStarted := time.Now()
 					rows, qerr := stmt.QueryContext(qctx, bundle.Params...)
-					cancel()
 					execMS = elapsedMS(execStarted)
 					if qerr == nil {
 						drainStarted := time.Now()
 						qerr = fetchRows(rows)
 						drainMS = elapsedMS(drainStarted)
 					}
+					cancel()
 					if qerr == nil {
 						success = true
 					} else {
@@ -1250,13 +1284,13 @@ func runOneEventConnFanout(
 					}
 					execStarted := time.Now()
 					rows, qerr := stmt.QueryContext(qctx, bundle.Params...)
-					cancel()
 					execMS = elapsedMS(execStarted)
 					if qerr == nil {
 						drainStarted := time.Now()
 						qerr = fetchRows(rows)
 						drainMS = elapsedMS(drainStarted)
 					}
+					cancel()
 					if qerr == nil {
 						success = true
 					} else {
@@ -1956,7 +1990,12 @@ func main() {
 	fmt.Printf("DB: %s:%d db=%s user=%s read_timeout=%s query_timeout=%s max_exec_ms=%d\n",
 		cfg.Host, cfg.Port, cfg.Database, cfg.User, readTimeout.String(), queryTimeout.String(), *maxExecMS)
 
-	db, err := sql.Open("mysql", mysqlDSN(cfg, *connectTimeout, *readTimeout, *writeTimeout, *isolation, *maxExecMS))
+	tlsConfigName, err := registerTLSConfig(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "register tls: %v\n", err)
+		os.Exit(1)
+	}
+	db, err := sql.Open("mysql", mysqlDSN(cfg, *connectTimeout, *readTimeout, *writeTimeout, *isolation, *maxExecMS, tlsConfigName))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
 		os.Exit(1)

@@ -27,6 +27,7 @@ def main() -> None:
     ap.add_argument("--normal-events", type=int, default=11000)
     ap.add_argument("--hot-events-per-field", type=int, default=100)
     ap.add_argument("--recent-limit", type=int, default=100000)
+    ap.add_argument("--normal-candidate-multiplier", type=float, default=25.0)
     ap.add_argument("--output", default="results/reuse_events_hua_fullscale.json")
     args = ap.parse_args()
 
@@ -95,6 +96,7 @@ def main() -> None:
                 max_payment_rows=10000,
                 max_device_rows=10000,
                 validate_counts=False,
+                candidate_multiplier=args.normal_candidate_multiplier,
             )
             print(f"normal_events={len(normal_events)} hot_events={len(hot_events)}", flush=True)
     finally:
@@ -104,6 +106,7 @@ def main() -> None:
         "profile": profile,
         "sampled_normal_events": normal_events,
         "sampled_hot_events": hot_events,
+        "normal_candidate_multiplier": args.normal_candidate_multiplier,
         "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "note": (
             "Reusable event sample for QPS ladder; hot values sourced from TiDB "

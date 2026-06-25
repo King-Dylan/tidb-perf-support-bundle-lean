@@ -439,6 +439,7 @@ def sample_normal_events(
     max_payment_rows: int,
     max_device_rows: int,
     validate_counts: bool,
+    candidate_multiplier: float = 25.0,
 ) -> list[dict[str, Any]]:
     p_clauses = []
     d_clauses = []
@@ -453,7 +454,8 @@ def sample_normal_events(
             else:
                 d_clauses.append(f"AND d.{column} <> %s")
                 d_params.append(hot)
-    candidate_limit = max(limit * (60 if validate_counts else 25), 10000)
+    multiplier = 60.0 if validate_counts else max(candidate_multiplier, 1.0)
+    candidate_limit = max(int(limit * multiplier), 10000)
     cur.execute(
         f"""
         SELECT
@@ -552,6 +554,7 @@ def sample_mixed_events(
     max_payment_rows: int,
     max_device_rows: int,
     validate_normal_counts: bool,
+    normal_candidate_multiplier: float = 25.0,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     cfg = get_db_config(save_msg="mixed traffic event sampler")
     conn = pymysql.connect(**cfg)
@@ -576,6 +579,7 @@ def sample_mixed_events(
                 max_payment_rows=max_payment_rows,
                 max_device_rows=max_device_rows,
                 validate_counts=validate_normal_counts,
+                candidate_multiplier=normal_candidate_multiplier,
             )
     finally:
         conn.close()
@@ -1615,6 +1619,7 @@ def main() -> None:
     ap.add_argument("--fast-normal-sampling", action="store_true", help="Sample normal events by excluding top hot values, without per-event count validation.")
     ap.add_argument("--max-normal-payment-rows", type=int, default=10000)
     ap.add_argument("--max-normal-device-rows", type=int, default=10000)
+    ap.add_argument("--normal-candidate-multiplier", type=float, default=25.0, help="Candidate payment rows to inspect per requested normal event when --fast-normal-sampling is used.")
     ap.add_argument("--pool-size", type=int, default=300)
     ap.add_argument("--write-pool-size", type=int, default=25)
     ap.add_argument("--event-workers", type=int, default=0, help="Bound concurrent event executions. 0 chooses a rate-based default.")
@@ -1663,6 +1668,7 @@ def main() -> None:
             max_payment_rows=args.max_normal_payment_rows,
             max_device_rows=args.max_normal_device_rows,
             validate_normal_counts=not args.fast_normal_sampling,
+            normal_candidate_multiplier=args.normal_candidate_multiplier,
         )
     print(f"Sampled {len(normal_events)} normal events and {len(hot_events)} hot-key events")
     target_events = (args.burst_events or math.ceil(args.duration * args.read_rate)) if args.dispatch_mode == "burst" else math.ceil(args.duration * args.read_rate)
@@ -2096,6 +2102,7 @@ def main() -> None:
         "hot_event_pct": args.hot_event_pct,
         "hot_events_per_field": args.hot_events_per_field,
         "fast_normal_sampling": args.fast_normal_sampling,
+        "normal_candidate_multiplier": args.normal_candidate_multiplier,
         "unique_events_required": args.unique_events_required,
         "summary_only": args.summary_only,
         "event_workers": event_workers,
