@@ -13,6 +13,7 @@ from collections import Counter
 import json
 import math
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -925,6 +926,38 @@ def main() -> None:
         report_path = local_log_dir / f"{output_prefix}_customer_report.md"
         report_path.write_text(render_markdown_report(fleet_report, summaries), encoding="utf-8")
         print(f"customer_report_md={report_path}")
+        local_workload = Path(args.workload)
+        if not local_workload.exists():
+            code_relative_workload = Path(__file__).resolve().parent / args.workload
+            if code_relative_workload.exists():
+                local_workload = code_relative_workload
+        if local_workload.exists():
+            readable_report = local_log_dir / f"{output_prefix}_customer_event_report.md"
+            readable_json = local_log_dir / f"{output_prefix}_customer_event_report.json"
+            report_script = Path(__file__).resolve().parent / "customer_event_report.py"
+            cmd = [
+                sys.executable,
+                str(report_script),
+                "--workload",
+                str(local_workload),
+                "--results",
+                *(str(path) for path in fetched_results),
+                "--output-md",
+                str(readable_report),
+                "--output-json",
+                str(readable_json),
+            ]
+            try:
+                subprocess.run(cmd, check=True)
+                print(f"customer_event_report_md={readable_report}")
+                print(f"customer_event_report_json={readable_json}")
+            except subprocess.CalledProcessError as exc:
+                print(f"WARNING: customer_event_report.py failed rc={exc.returncode}")
+        else:
+            print(
+                "WARNING: local workload JSON not found; skipped customer_event_report.py. "
+                f"Looked for {args.workload} and {Path(__file__).resolve().parent / args.workload}."
+            )
     summary_path.write_text(json.dumps({"elapsed": elapsed, "runs": summaries, "fleet_customer_report": fleet_report}, indent=2), encoding="utf-8")
     print(f"summary={summary_path}")
 

@@ -1752,7 +1752,7 @@ func buildRealismReport(
 func classifyBundleMode(sqlText string) string {
 	lower := strings.ToLower(sqlText)
 	switch {
-	case strings.Contains(lower, "risk_feature_serving_wide"):
+	case strings.Contains(lower, "risk_feature_serving_wide") || strings.Contains(lower, "risk_feature_serving"):
 		return "serving"
 	case strings.Contains(lower, "daily_rollup") || strings.Contains(lower, "daily_distinct"):
 		return "preagg"
