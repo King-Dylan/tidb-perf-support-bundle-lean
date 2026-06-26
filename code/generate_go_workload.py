@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,12 @@ KEY_FIELDS = [
     "input_ip",
     "true_ip",
 ]
+EVENT_SOURCE_MODEL = "real_joined_payment_device_event"
+EVENT_SOURCE_MODEL_NOTE = (
+    "Each workload event preserves the complete 8-field binding set from one "
+    "real joined pmt_txn_fact/deviceprofile_fact source event. The generator "
+    "does not cross-join independent key pools to manufacture synthetic events."
+)
 
 
 def parse_duration_seconds(raw: str) -> float:
@@ -200,6 +207,56 @@ def binding_key(event: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(bindings.get(field) for field in KEY_FIELDS)
 
 
+def event_id(event: dict[str, Any]) -> Any:
+    return event.get("invoice_number") or event.get("event")
+
+
+def counter_max(counter: Counter[Any]) -> int:
+    return max(counter.values(), default=0)
+
+
+def short_counter_examples(counter: Counter[Any], limit: int = 5) -> str:
+    duplicates = [f"{key!r} x{count}" for key, count in counter.items() if count > 1]
+    return ", ".join(duplicates[:limit])
+
+
+def validate_selected_events(events: list[dict[str, Any]], allow_event_reuse: bool) -> None:
+    missing: list[str] = []
+    for idx, event in enumerate(events):
+        if event_id(event) is None:
+            missing.append(f"event[{idx}] missing invoice_number")
+            continue
+        bindings = event.get("bindings") or {}
+        missing_fields = [field for field in KEY_FIELDS if bindings.get(field) is None]
+        if missing_fields:
+            missing.append(f"event[{idx}] {event_id(event)!r} missing {','.join(missing_fields)}")
+        if bindings.get("parsed_interaction_id") is None:
+            missing.append(f"event[{idx}] {event_id(event)!r} missing parsed_interaction_id")
+        if len(missing) >= 10:
+            break
+    if missing:
+        raise ValueError(
+            "source events are not complete real joined payment/device binding sets: "
+            + "; ".join(missing)
+        )
+
+    if allow_event_reuse:
+        return
+
+    source_counts = Counter(event_id(event) for event in events)
+    binding_counts = Counter(binding_key(event) for event in events)
+    if counter_max(source_counts) > 1:
+        raise ValueError(
+            "source event reuse detected in a no-reuse workload: "
+            + short_counter_examples(source_counts)
+        )
+    if counter_max(binding_counts) > 1:
+        raise ValueError(
+            "full 8-field binding-set reuse detected in a no-reuse workload: "
+            + short_counter_examples(binding_counts)
+        )
+
+
 def json_param(value: Any) -> Any:
     if value is None:
         return None
@@ -338,6 +395,7 @@ def main() -> None:
         allow_event_reuse=args.allow_event_reuse,
         require_hot_fields=args.require_hot_fields,
     )
+    validate_selected_events(events, allow_event_reuse=args.allow_event_reuse)
 
     bundle_pairs = all_bundle_pairs()
     excluded = set(args.exclude_bundle)
@@ -450,15 +508,36 @@ def main() -> None:
             }
         )
 
-    source_event_ids = [event.get("invoice_number") for event in events]
+    source_event_ids = [event_id(event) for event in events]
     full_binding_keys = [binding_key(event) for event in events]
+    source_event_counts = Counter(source_event_ids)
+    full_binding_counts = Counter(full_binding_keys)
     selected_hot_by_field = {
         field: sum(1 for event in events if event.get("hot_field") == field)
         for field in KEY_FIELDS
     }
+    binding_fields = {}
+    for field in KEY_FIELDS:
+        values = [(event.get("bindings") or {}).get(field) for event in events]
+        counts = Counter(values)
+        binding_fields[field] = {
+            "distinct": len(counts),
+            "max_repeat": counter_max(counts),
+        }
+    hot_values = {
+        field: {
+            "source": profile.get("source", ""),
+            "table": profile.get("table", ""),
+            "value": profile.get("value"),
+            "count": profile.get("count"),
+        }
+        for field, profile in ((payload.get("profile") or {}).get("hot_fields", {}) or {}).items()
+    }
     output = {
         "generated_at_unix": time.time(),
         "source_events_json": str(source_path),
+        "event_source_model": EVENT_SOURCE_MODEL,
+        "event_source_model_note": EVENT_SOURCE_MODEL_NOTE,
         "mode": "bundle-serving" if args.preagg_mode == "serving" else args.preagg_mode,
         "event_count": len(workload_events),
         "target_event_eps": args.target_event_eps,
@@ -476,16 +555,29 @@ def main() -> None:
         "serving_bundles": sorted(serving_bundles),
         "tiflash_mpp_bundles": sorted(tiflash_mpp_bundles),
         "hot_key_profile": (payload.get("profile") or {}).get("hot_fields", {}),
+        "event_selection": {
+            "source_model": EVENT_SOURCE_MODEL,
+            "source_model_note": EVENT_SOURCE_MODEL_NOTE,
+            "source_reused": bool(args.allow_event_reuse),
+            "unique_events_required": not args.allow_event_reuse,
+            "cross_joined_independent_key_pools": False,
+        },
         "workload_stats": {
+            "event_rows": len(workload_events),
             "generated_workload_rows": len(workload_events),
             "unique_source_events": len(set(source_event_ids)),
+            "unique_binding_sets": len(set(full_binding_keys)),
             "unique_full_binding_sets": len(set(full_binding_keys)),
-            "source_event_reuse_max": max((source_event_ids.count(event_id) for event_id in set(source_event_ids)), default=0),
-            "full_binding_reuse_max": max((full_binding_keys.count(key) for key in set(full_binding_keys)), default=0),
+            "source_event_reuse_max": counter_max(source_event_counts),
+            "full_binding_reuse_max": counter_max(full_binding_counts),
+            "event_source_model": EVENT_SOURCE_MODEL,
+            "cross_joined_independent_key_pools": False,
             "hot_event_pct": args.hot_event_pct,
             "planned_hot_events": planned_hot_count(args.events, args.hot_event_pct),
             "planned_normal_events": args.events - planned_hot_count(args.events, args.hot_event_pct),
             "selected_hot_events_by_field": selected_hot_by_field,
+            "binding_fields": binding_fields,
+            "hot_values": hot_values,
         },
         "templates": templates,
         "events": workload_events,
