@@ -61,6 +61,7 @@ DEFAULT_NO_GROUP_BY_BUNDLES = {
 }
 DEFAULT_GROUP_B_SPLIT_DISTINCT_BUNDLES = {
     "group_b_bundle_010",
+    "group_b_bundle_011",
     "group_b_bundle_012",
 }
 GROUP_B_SPLIT_DISTINCT_INLINE_FIELDS = {"d.agent_type"}
@@ -90,7 +91,11 @@ DEFAULT_GROUP_C_INNER_JOIN_BUNDLES: set[str] = {
     "group_c_bundle_018",
     "group_c_bundle_021",
 }
-DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES: set[str] = set()
+DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES: set[str] = {
+    "group_c_bundle_016",
+    "group_c_bundle_017",
+    "group_c_bundle_018",
+}
 GROUP_C_INNER_JOIN_BUNDLES = parse_bundle_set_env(
     "INTUIT_GROUP_C_INNER_JOIN_BUNDLES",
     DEFAULT_GROUP_C_INNER_JOIN_BUNDLES,
