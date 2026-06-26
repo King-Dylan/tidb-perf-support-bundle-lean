@@ -40,6 +40,7 @@ from demo import (
     cluster_group_a_templates,
     cluster_group_b_templates,
     cluster_group_c_templates,
+    group_b_runtime_predicate_repetitions,
 )
 from lib.db_config import get_db_config
 from exact_serving import (
@@ -654,7 +655,10 @@ def bundle_params(
     if bundle.bundle_id in serving_bundles:
         return serving_params(bundle, reference_time, bindings, serving_as_of_grain)
     if bundle.bundle_id not in preagg_bundles:
-        return tuple(bindings.get(name) for name in bundle.param_names)
+        params = tuple(bindings.get(name) for name in bundle.param_names)
+        if bundle.bundle_id.startswith("group_b_bundle_"):
+            return params * group_b_runtime_predicate_repetitions(bundle)
+        return params
 
     key_values = tuple(
         None if bindings.get(k) is None else str(bindings.get(k))

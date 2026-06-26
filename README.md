@@ -253,71 +253,88 @@ Recommended customer-facing mode for future fleet tests:
 - Histogram buckets are `0-50ms`, `50-100ms`, `100-150ms`, `150-200ms`,
   `200-300ms`, `300-350ms`, `350-500ms`, and `>500/error`.
 
-### 0. Build a 300K Source Event Sample
+### 0. Build a Full-Run Source Event Sample
 
 For the next customer-facing 1000 EPS run, do not reuse the old 1000-event
-sample. For a 5-minute run at 1000 EPS, build a source-event pool close to
-300K rows with as many unique full 8-field binding sets as the source data can
-provide. This matches the customer request more closely than the earlier 1K or
-30K engineering/debug pools.
+sample. Size the source-event pool to the actual run length:
 
-One way to create the source sample is to run the Python sampler with unique
-events required. Tune `--normal-events` and `--hot-events-per-field` based on
-the target hot-key mix and how many hot values the database can provide:
+- 5 minutes at 1000 EPS: 300,000 source events
+- 10 minutes at 1000 EPS: 600,000 source events
+- 20 minutes at 1000 EPS: 1,200,000 source events
+
+Do not build a 300K source pool and then run for 10 or 20 minutes. That would
+cycle the workload rows during the later part of the run and make the result
+cache-friendly again.
+
+Create the source sample from real table data and TiDB TopN hot-key values.
+For the customer-facing run, do not pass any event-reuse flags. The two SHA512
+hash fields have very high cardinality and no meaningful hot key in the current
+data, so keep them unique and exclude only their artificial hot-key injection:
 
 ```bash
 cd code
 cp ../connection/.db_config.json .db_config.json
 
-.venv/bin/python mixed_traffic_test.py \
-  --duration 60 \
-  --read-rate 1000 \
+TARGET_EVENT_EPS=1000
+RUN_DURATION=10m
+RUN_LABEL=1000eps_10m
+
+.venv/bin/python build_reuse_events_from_stats.py \
+  --target-event-eps "${TARGET_EVENT_EPS}" \
+  --duration "${RUN_DURATION}" \
   --hot-event-pct 0.05 \
-  --normal-events 285000 \
-  --hot-events-per-field 2000 \
-  --unique-events-required \
-  --summary-only \
-  --no-writes \
-  --skip-initial-warmup
+  --no-hot-field card_holder_number_sha512 \
+  --no-hot-field check_bank_account_number_sha512 \
+  --output "results/reuse_events_${RUN_LABEL}.json"
 ```
 
-The script writes `results/mixed_traffic_<timestamp>.json`. Use that file as
-the `--reuse-events-json` input in the next step. If the sampler cannot provide
-enough unique normal/hot events, it fails instead of silently cycling keys.
+For a 20-minute run, set `RUN_DURATION=20m` and `RUN_LABEL=1000eps_20m`.
+The helper sizes the source pool from `target_event_eps * duration`. If the
+sampler cannot provide enough normal events or enough hot-key events for the
+real hot fields, it fails instead of silently cycling keys.
 
-### 1. Generate a Static 300K Go Workload
+### 1. Generate a Static Full-Run Go Workload
 
 Generate the static Go workload from the optimized path. This keeps runtime
 windows on the base tables and overlays exact wide serving for the selected
-180d bundles.
+180d bundles. The expected physical shape is **53 runtime + 0 daily pre-agg +
+12 serving**. Do not use plain `--preagg-mode serving` without explicit
+`--serving-bundle` values, because that would route all 65 bundles to serving
+tables and make the test unrealistically fast. Do not use `--preagg-mode
+hybrid` for the final run, because that routes the 180d bundles to the large
+daily rollup/distinct tables and can reintroduce the slow 180d tail.
 
 ```bash
 cd code
 cp ../connection/.db_config.json .db_config.json
 
 .venv/bin/python generate_go_workload.py \
-  --reuse-events-json results/mixed_traffic_<timestamp>.json \
-  --output results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
-  --events 300000 \
+  --reuse-events-json "results/reuse_events_${RUN_LABEL}.json" \
+  --output "results/go_workload_${RUN_LABEL}.json" \
+  --target-event-eps "${TARGET_EVENT_EPS}" \
+  --duration "${RUN_DURATION}" \
   --hot-event-pct 0.05 \
-  --unique-events-required \
-  --preagg-mode hybrid \
-  --preagg-layout prod180 \
-  --serving-as-of-grain day \
-  --runtime-window-params
+  --runtime-window-params \
+  --no-require-hot-fields \
+  --preagg-mode serving \
+  --serving-bundle group_a_bundle_017 --serving-bundle group_a_bundle_018 \
+  --serving-bundle group_a_bundle_019 --serving-bundle group_a_bundle_020 \
+  --serving-bundle group_b_bundle_017 --serving-bundle group_b_bundle_018 \
+  --serving-bundle group_b_bundle_019 --serving-bundle group_b_bundle_020 \
+  --serving-bundle group_c_bundle_022 --serving-bundle group_c_bundle_023 \
+  --serving-bundle group_c_bundle_024 --serving-bundle group_c_bundle_025
 ```
 
 This writes one JSON file containing the rendered SQL templates and
-event-specific parameters for `300000 * 65` bundle executions. The Go hot path
-does not import Python or render SQL. The generated JSON also includes
-`event_selection` and `workload_stats`, including unique source event count,
-unique full binding-set count, event mix, hot-field mix, hot-key values, and
+event-specific parameters for `target_event_eps * duration * 65` bundle
+executions. The Go hot path does not import Python or render SQL. The generated
+JSON also includes `workload_stats`, including generated rows, unique source
+event count, unique full binding-set count, hot-field mix, hot-key values, and
 distinct/max-repeat per binding field.
 
-For a final realism run, keep `--unique-events-required`; this makes the
-generator fail if the source sample is too small. The final report should
-disclose the generated pool size, executed unique source events, executed unique
-binding-set count, max row repeat, and whether any sampling/cycling occurred.
+For a final realism run, do not pass `--allow-event-reuse`; that flag is only
+for tiny smoke tests. Confirm the generated workload shows 53 runtime bundles,
+0 daily pre-agg bundles, and 12 serving bundles before running the full test.
 
 Large workloads are intentionally not committed to git. Keep them under
 `code/results/` on the EC2 clients or copy them through S3/rsync as needed.
@@ -355,7 +372,7 @@ scp -i "$KEY" -o StrictHostKeyChecking=no \
   "$REMOTE":~/tidb-perf-support-bundle-lean/code/go-loadgen/
 
 scp -i "$KEY" -o StrictHostKeyChecking=no \
-  code/results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
+  "code/results/go_workload_${RUN_LABEL}.json" \
   "$REMOTE":~/tidb-perf-support-bundle-lean/code/results/
 ```
 
@@ -371,7 +388,7 @@ cd ~/tidb-perf-support-bundle-lean/code
 ulimit -n 30000
 
 ./go-loadgen/go-loadgen-linux-amd64 \
-  --workload results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
+  --workload "results/go_workload_${RUN_LABEL}.json" \
   --db-config .db_config.json \
   --output results/go_loadgen_smoke_1000e_200c_connfanout.json \
   --events 1000 \
@@ -380,8 +397,6 @@ ulimit -n 30000
   --query-timeout 0s \
   --max-execution-time-ms 0 \
   --execution-mode conn-fanout \
-  --event-sampling random \
-  --event-random-seed 20260625 \
   --cache-state unknown \
   --prepare-all
 ```
@@ -392,7 +407,7 @@ Use the fleet runner when testing 1000 events/sec. Each remote host must already
 have:
 
 - `~/tidb-perf-support-bundle-lean/code/go-loadgen/go-loadgen-linux-amd64`
-- `~/tidb-perf-support-bundle-lean/code/results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json`
+- `~/tidb-perf-support-bundle-lean/code/results/go_workload_${RUN_LABEL}.json`
 - `~/tidb-perf-support-bundle-lean/code/.db_config.json`
 
 Create a host file with one EC2 client per line. The June 2 run used 8 EC2
@@ -414,15 +429,21 @@ HOSTS
 Run from the repo root:
 
 ```bash
-prefix="go_fleet16_8host_connfanout_1000eps_3000c_300s_300k_unique_steady3m_$(date +%s)"
+TARGET_EVENT_EPS=1000
+RUN_DURATION=10m
+RUN_SECONDS=600
+RUN_EVENTS=$((TARGET_EVENT_EPS * RUN_SECONDS))
+RUN_LABEL=1000eps_10m
+
+prefix="go_fleet16_8host_connfanout_${RUN_LABEL}_3000c_no_reuse_steady3m_$(date +%s)"
 
 python3 code/run_go_loadgen_fleet.py \
   --hosts "$(paste -sd, /tmp/codex_go_hosts8.txt)" \
   --ssh-key /path/to/rp-us-west-2.pem \
   --remote-dir '~/tidb-perf-support-bundle-lean/code' \
-  --workload results/go_workload_300k_hybrid_prod180_180d_serving_wide_paramwin.json \
+  --workload "results/go_workload_${RUN_LABEL}.json" \
   --db-config .db_config.json \
-  --events-total 300000 \
+  --events-total "${RUN_EVENTS}" \
   --connections-total 3000 \
   --processes-per-host 2 \
   --setup-timeout 1200s \
@@ -430,11 +451,9 @@ python3 code/run_go_loadgen_fleet.py \
   --query-timeout 0s \
   --max-execution-time-ms 0 \
   --execution-mode conn-fanout \
-  --target-event-eps 1000 \
-  --duration 300s \
+  --target-event-eps "${TARGET_EVENT_EPS}" \
+  --duration "${RUN_DURATION}" \
   --max-pending-events 3000 \
-  --event-sampling random \
-  --event-random-seed 20260625 \
   --report-window-start 1m \
   --report-window-duration 3m \
   --start-delay-seconds 30 \
@@ -453,18 +472,19 @@ This layout means:
 - 2 Go processes per EC2 instance, so 16 load-generator app processes
 - target `1000 events/sec / 16 = 62.5 events/sec` per app process
 - 65 SQLs per event, so target `65,000 SQL/sec` total
-- `300,000` submitted events over 5 minutes
-- the fleet runner passes `--event-offset` and `--event-stride` to each Go
-  process by default, and `--event-sampling random` makes each process randomly
-  sample from the 300K workload pool using a deterministic seed
+- submitted events equal `TARGET_EVENT_EPS * RUN_DURATION`, for example
+  `600,000` over 10 minutes or `1,200,000` over 20 minutes
+- the fleet runner passes distinct `--event-offset` and `--event-stride`
+  values to each Go process by default, so the full-run workload is covered
+  across the fleet without replaying the same row slice from every process
 - the customer-facing report above uses the stable 3-minute window from
   `--report-window-start 1m --report-window-duration 3m`, excluding connection
   warmup, prepare, autoscale ramp-up, and end-of-run drain
 - the fleet runner fetches each remote Go result JSON by default and writes a
   merged `fleet_customer_report` into `results/${prefix}_summary.json`
-- the fleet runner also writes a human-readable
-  `results/${prefix}_customer_report.md`; this is the customer-facing report
-  that aggregates all EC2/app-process result files
+- the fleet runner also writes `results/${prefix}_customer_report.md` plus the
+  v4.4 customer-readable `results/${prefix}_customer_event_report.md` and
+  `results/${prefix}_customer_event_report.json`
 - `3000` requested connections total; the runner rounded this to `188`
   connections per process, or about `3008` pool slots total
 - the 10-minute run reported `Workers ready=186-188/188` per process
