@@ -2,11 +2,7 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"crypto/tls"
-	"crypto/x509"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -25,16 +21,11 @@ import (
 )
 
 type DBConfig struct {
-	Host     string     `json:"host"`
-	Port     int        `json:"port"`
-	User     string     `json:"user"`
-	Password string     `json:"password"`
-	Database string     `json:"database"`
-	SSL      *SSLConfig `json:"ssl,omitempty"`
-}
-
-type SSLConfig struct {
-	CA string `json:"ca,omitempty"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	User     string `json:"user"`
+	Password string `json:"password"`
+	Database string `json:"database"`
 }
 
 type Template struct {
@@ -50,13 +41,11 @@ type BundleRun struct {
 }
 
 type WorkloadEvent struct {
-	Index         int                    `json:"index"`
-	Event         string                 `json:"event"`
-	Kind          string                 `json:"kind"`
-	HotField      interface{}            `json:"hot_field"`
-	ReferenceTime string                 `json:"reference_time,omitempty"`
-	Bindings      map[string]interface{} `json:"bindings,omitempty"`
-	Bundles       []BundleRun            `json:"bundles"`
+	Index    int         `json:"index"`
+	Event    string      `json:"event"`
+	Kind     string      `json:"kind"`
+	HotField interface{} `json:"hot_field"`
+	Bundles  []BundleRun `json:"bundles"`
 }
 
 type Workload struct {
@@ -65,74 +54,49 @@ type Workload struct {
 	Mode             string          `json:"mode"`
 	EventCount       int             `json:"event_count"`
 	BundleCount      int             `json:"bundle_count"`
-	EventSelection   map[string]any  `json:"event_selection,omitempty"`
-	WorkloadStats    map[string]any  `json:"workload_stats,omitempty"`
 	Templates        []Template      `json:"templates"`
 	Events           []WorkloadEvent `json:"events"`
 }
 
 type Task struct {
-	EventIdx       int
-	WorkloadIdx    int
-	SourceEvent    string
-	BindingSetHash string
-	Kind           string
-	HotField       string
-	TemplateIdx    int
-	Params         []interface{}
-	Skip           bool
-	QueuedAt       time.Time
+	EventIdx    int
+	TemplateIdx int
+	Params      []interface{}
+	Skip        bool
+	QueuedAt    time.Time
 }
 
 type EventState struct {
-	StartNs      int64
-	Remaining    int64
-	Successes    int64
-	Errors       int64
-	Score60Ns    int64
-	BundlesBy300 int64
-	BundlesBy350 int64
-	BundlesBy500 int64
-	SQLMu        sync.Mutex
-	SQLSuccessMS []float64
+	StartNs   int64
+	Remaining int64
+	Successes int64
+	Errors    int64
+	Skipped   int64
+	Score60Ns int64
 }
 
 type EventResult struct {
-	EventIdx        int     `json:"event_idx"`
-	WorkloadIdx     int     `json:"workload_idx"`
-	SourceEvent     string  `json:"source_event,omitempty"`
-	BindingSetHash  string  `json:"binding_set_hash,omitempty"`
-	Kind            string  `json:"kind,omitempty"`
-	HotField        string  `json:"hot_field,omitempty"`
-	MS              float64 `json:"ms"`
-	Score60MS       float64 `json:"score60_ms"`
-	Full65MS        float64 `json:"full65_ms"`
-	SQLScore60MS    float64 `json:"sql_score60_ms"`
-	SQLFull65MS     float64 `json:"sql_full65_ms"`
-	Successes       int64   `json:"successes"`
-	Errors          int64   `json:"errors"`
-	BundlesBy300    int64   `json:"bundles_by_300_ms"`
-	BundlesBy350    int64   `json:"bundles_by_350_ms"`
-	BundlesBy500    int64   `json:"bundles_by_500_ms"`
-	SQLBundlesBy300 int64   `json:"sql_bundles_by_300_ms"`
-	SQLBundlesBy350 int64   `json:"sql_bundles_by_350_ms"`
-	SQLBundlesBy500 int64   `json:"sql_bundles_by_500_ms"`
-	CompletedAt     int64   `json:"completed_at_unix_nano"`
+	EventIdx     int     `json:"event_idx"`
+	MS           float64 `json:"ms"`
+	Score60MS    float64 `json:"score60_ms"`
+	Full65MS     float64 `json:"full65_ms"`
+	SqlScore60MS float64 `json:"sql_score60_ms"`
+	SqlFull65MS  float64 `json:"sql_full65_ms"`
+	By300        int     `json:"bundles_by_300ms"`
+	By350        int     `json:"bundles_by_350ms"`
+	By500        int     `json:"bundles_by_500ms"`
+	Successes    int64   `json:"successes"`
+	Errors       int64   `json:"errors"`
+	Skipped      int     `json:"skipped"`
+	CompletedAt  int64   `json:"completed_at_unix_nano"`
 }
 
 type WorkerMetrics struct {
-	QueryMS           []float64
-	QueueMS           []float64
-	PrepareMS         []float64
-	ExecMS            []float64
-	DrainMS           []float64
-	QueryByTemplate   map[int][]float64
-	EventMSByTemplate map[int][]float64
-	Miss300ByTemplate map[int]int
-	Miss350ByTemplate map[int]int
-	Miss500ByTemplate map[int]int
-	Errors            int64
-	FirstErrors       []string
+	QueryMS         []float64
+	QueueMS         []float64
+	QueryByTemplate map[int][]float64
+	Errors          int64
+	FirstErrors     []string
 }
 
 type WorkerReady struct {
@@ -145,48 +109,32 @@ type QueryOutcome struct {
 	TemplateIdx int
 	QueryMS     float64
 	QueueMS     float64
-	PrepareMS   float64
-	ExecMS      float64
-	DrainMS     float64
-	EventMS     float64
+	CompletedMS float64
 	Success     bool
+	Skipped     bool
 	Error       string
 }
 
 type FanoutMetrics struct {
-	mu                sync.Mutex
-	QueryMS           []float64
-	QueueMS           []float64
-	PrepareMS         []float64
-	ExecMS            []float64
-	DrainMS           []float64
-	QueryByTemplate   map[int][]float64
-	EventMSByTemplate map[int][]float64
-	Miss300ByTemplate map[int]int
-	Miss350ByTemplate map[int]int
-	Miss500ByTemplate map[int]int
-	Errors            int64
-	FirstErrors       []string
+	mu              sync.Mutex
+	QueryMS         []float64
+	QueueMS         []float64
+	QueryByTemplate map[int][]float64
+	Errors          int64
+	FirstErrors     []string
 }
 
 type RunStats struct {
-	Started           time.Time
-	Elapsed           time.Duration
-	EventResults      []EventResult
-	QueryMS           []float64
-	QueueMS           []float64
-	PrepareMS         []float64
-	ExecMS            []float64
-	DrainMS           []float64
-	QueryByTemplate   map[int][]float64
-	EventMSByTemplate map[int][]float64
-	Miss300ByTemplate map[int]int
-	Miss350ByTemplate map[int]int
-	Miss500ByTemplate map[int]int
-	TotalErrors       int64
-	FirstQueryErrors  []string
-	ReadyWorkers      int
-	SetupErrors       []string
+	Started          time.Time
+	Elapsed          time.Duration
+	EventResults     []EventResult
+	QueryMS          []float64
+	QueueMS          []float64
+	QueryByTemplate  map[int][]float64
+	TotalErrors      int64
+	FirstQueryErrors []string
+	ReadyWorkers     int
+	SetupErrors      []string
 }
 
 type ConnSlot struct {
@@ -200,7 +148,6 @@ type Summary struct {
 	P50     float64 `json:"p50,omitempty"`
 	P95     float64 `json:"p95,omitempty"`
 	P99     float64 `json:"p99,omitempty"`
-	P999    float64 `json:"p999,omitempty"`
 	Avg     float64 `json:"avg,omitempty"`
 	Min     float64 `json:"min,omitempty"`
 	Max     float64 `json:"max,omitempty"`
@@ -210,127 +157,34 @@ type Summary struct {
 }
 
 type Result struct {
-	StartedAtUnix        float64            `json:"started_at_unix"`
-	ElapsedSeconds       float64            `json:"elapsed_seconds"`
-	Connections          int                `json:"connections"`
-	EventsSubmitted      int                `json:"events_submitted"`
-	BundleCount          int                `json:"bundle_count"`
-	TargetBundleQPS      int                `json:"target_bundle_qps"`
-	TargetEventEPS       float64            `json:"target_event_eps,omitempty"`
-	DurationSeconds      float64            `json:"duration_seconds,omitempty"`
-	MaxPendingEvents     int                `json:"max_pending_events,omitempty"`
-	CompletedEventEPS    float64            `json:"completed_event_eps"`
-	Full65EventEPS       float64            `json:"full65_event_eps"`
-	TotalTasks           int                `json:"total_tasks"`
-	TotalErrors          int64              `json:"total_errors"`
-	ReadTimeout          string             `json:"read_timeout"`
-	QueryTimeout         string             `json:"query_timeout"`
-	MaxExecutionTimeMS   int                `json:"max_execution_time_ms"`
-	PrepareAll           bool               `json:"prepare_all"`
-	ExecutionMode        string             `json:"execution_mode"`
-	EventSampling        string             `json:"event_sampling"`
-	EventRandomSeed      int64              `json:"event_random_seed,omitempty"`
-	EventOffset          int                `json:"event_offset"`
-	EventStride          int                `json:"event_stride"`
-	CacheState           string             `json:"cache_state,omitempty"`
-	CacheNote            string             `json:"cache_note,omitempty"`
-	StartAtUnixMS        int64              `json:"start_at_unix_ms,omitempty"`
-	SetupTimeout         string             `json:"setup_timeout"`
-	WorkloadSelection    map[string]any     `json:"workload_event_selection,omitempty"`
-	WorkloadStats        map[string]any     `json:"workload_stats,omitempty"`
-	ReadyWorkers         int                `json:"ready_workers"`
-	SetupErrors          []string           `json:"setup_errors,omitempty"`
-	FirstQueryErrors     []string           `json:"first_query_errors,omitempty"`
-	Summaries            map[string]Summary `json:"summaries"`
-	BundleSummaries      map[string]Summary `json:"bundle_summaries,omitempty"`
-	BundleEventSummaries map[string]Summary `json:"bundle_event_summaries,omitempty"`
-	CustomerReport       CustomerReport     `json:"customer_report,omitempty"`
-	EventResults         []EventResult      `json:"event_results,omitempty"`
-}
-
-type CountRate struct {
-	Events  int     `json:"events"`
-	Percent float64 `json:"percent"`
-	EPS     float64 `json:"eps"`
-}
-
-type LatencyReport struct {
-	Summary   Summary        `json:"summary"`
-	Histogram map[string]int `json:"histogram"`
-}
-
-type BindingFieldStats struct {
-	Distinct  int    `json:"distinct"`
-	MaxRepeat int    `json:"max_repeat"`
-	MaxValue  string `json:"max_value,omitempty"`
-}
-
-type RealismReport struct {
-	CompletedEvents        int                          `json:"completed_events"`
-	GeneratedWorkloadRows  int                          `json:"generated_workload_rows"`
-	UniqueSourceEvents     int                          `json:"unique_source_events"`
-	ExecutedUniqueEvents   int                          `json:"executed_unique_events"`
-	UniqueBindingSets      int                          `json:"unique_binding_sets"`
-	ExecutedBindingSets    int                          `json:"executed_unique_binding_sets"`
-	CycledWorkloadSample   bool                         `json:"cycled_workload_sample"`
-	EventSampling          string                       `json:"event_sampling"`
-	EventRandomSeed        int64                        `json:"event_random_seed,omitempty"`
-	EventOffset            int                          `json:"event_offset"`
-	EventStride            int                          `json:"event_stride"`
-	WorkloadRowReuseMin    int                          `json:"workload_row_reuse_min,omitempty"`
-	WorkloadRowReuseMax    int                          `json:"workload_row_reuse_max,omitempty"`
-	CacheState             string                       `json:"cache_state,omitempty"`
-	CacheNote              string                       `json:"cache_note,omitempty"`
-	EventMix               map[string]int               `json:"event_mix"`
-	HotFieldMix            map[string]int               `json:"hot_field_mix"`
-	BindingFieldsAvailable bool                         `json:"binding_fields_available"`
-	BindingFields          map[string]BindingFieldStats `json:"binding_fields,omitempty"`
-}
-
-type BundleTailReport struct {
-	BundleID string  `json:"bundle_id"`
-	N        int     `json:"n"`
-	P95      float64 `json:"p95"`
-	P99      float64 `json:"p99"`
-	P999     float64 `json:"p999"`
-	Max      float64 `json:"max"`
-	Over300  int     `json:"over_300"`
-	Over350  int     `json:"over_350"`
-	Over500  int     `json:"over_500"`
-	SQLP95   float64 `json:"sql_p95,omitempty"`
-	SQLP99   float64 `json:"sql_p99,omitempty"`
-	SQLP999  float64 `json:"sql_p999,omitempty"`
-	SQLMax   float64 `json:"sql_max,omitempty"`
-}
-
-type CustomerReport struct {
-	LatencyScope      string                          `json:"latency_scope,omitempty"`
-	CompletedEvents   int                             `json:"completed_events,omitempty"`
-	EventSLA          map[string]map[string]CountRate `json:"event_sla,omitempty"`
-	EventLatency      map[string]LatencyReport        `json:"event_latency,omitempty"`
-	SQLOnlySLA        map[string]map[string]CountRate `json:"sql_only_sla,omitempty"`
-	SQLOnlyLatency    map[string]LatencyReport        `json:"sql_only_latency,omitempty"`
-	AvgBundlesBy300MS float64                         `json:"avg_bundles_by_300_ms,omitempty"`
-	AvgBundlesBy350MS float64                         `json:"avg_bundles_by_350_ms,omitempty"`
-	AvgBundlesBy500MS float64                         `json:"avg_bundles_by_500_ms,omitempty"`
-	Realism           RealismReport                   `json:"test_realism,omitempty"`
-	BundleModeCounts  BundleModeCounts                `json:"bundle_mode_counts,omitempty"`
-	TailDrivers       []BundleTailReport              `json:"tail_drivers,omitempty"`
-}
-
-type BundleModeCounts struct {
-	Runtime int                        `json:"runtime"`
-	PreAgg  int                        `json:"preagg"`
-	Serving int                        `json:"serving"`
-	Total   int                        `json:"total"`
-	ByGroup map[string]BundleModeGroup `json:"by_group,omitempty"`
-}
-
-type BundleModeGroup struct {
-	Runtime int `json:"runtime"`
-	PreAgg  int `json:"preagg"`
-	Serving int `json:"serving"`
-	Total   int `json:"total"`
+	StartedAtUnix      float64            `json:"started_at_unix"`
+	ElapsedSeconds     float64            `json:"elapsed_seconds"`
+	Connections        int                `json:"connections"`
+	EventsSubmitted    int                `json:"events_submitted"`
+	BundleCount        int                `json:"bundle_count"`
+	TargetBundleQPS    int                `json:"target_bundle_qps"`
+	TargetEventEPS     float64            `json:"target_event_eps,omitempty"`
+	DurationSeconds    float64            `json:"duration_seconds,omitempty"`
+	MaxPendingEvents   int                `json:"max_pending_events,omitempty"`
+	CompletedEventEPS  float64            `json:"completed_event_eps"`
+	Full65EventEPS     float64            `json:"full65_event_eps"`
+	TotalTasks         int                `json:"total_tasks"`
+	TotalErrors        int64              `json:"total_errors"`
+	ReadTimeout        string             `json:"read_timeout"`
+	QueryTimeout       string             `json:"query_timeout"`
+	MaxExecutionTimeMS int                `json:"max_execution_time_ms"`
+	PrepareAll         bool               `json:"prepare_all"`
+	ExecutionMode      string             `json:"execution_mode"`
+	EventOffset        int                `json:"event_offset"`
+	EventStride        int                `json:"event_stride"`
+	StartAtUnixMS      int64              `json:"start_at_unix_ms,omitempty"`
+	SetupTimeout       string             `json:"setup_timeout"`
+	ReadyWorkers       int                `json:"ready_workers"`
+	SetupErrors        []string           `json:"setup_errors,omitempty"`
+	FirstQueryErrors   []string           `json:"first_query_errors,omitempty"`
+	Summaries          map[string]Summary `json:"summaries"`
+	BundleSummaries    map[string]Summary `json:"bundle_summaries,omitempty"`
+	EventResults       []EventResult      `json:"event_results,omitempty"`
 }
 
 func readJSON(path string, out interface{}) error {
@@ -383,207 +237,23 @@ func summarize(vals []float64) Summary {
 	}
 	return Summary{
 		N: len(vals), P50: percentile(vals, 50), P95: percentile(vals, 95),
-		P99: percentile(vals, 99), P999: percentile(vals, 99.9), Avg: sum / float64(len(vals)),
+		P99: percentile(vals, 99), Avg: sum / float64(len(vals)),
 		Min: minV, Max: maxV, Over300: over300, Over350: over350, Over500: over500,
 	}
 }
 
-func countLE(vals []float64, threshold float64) int {
-	count := 0
-	for _, v := range vals {
-		if v >= 0 && v <= threshold {
-			count++
-		}
-	}
-	return count
-}
-
-func countRate(vals []float64, threshold float64, totalEvents int, elapsed time.Duration) CountRate {
-	events := countLE(vals, threshold)
-	percent := 0.0
-	if totalEvents > 0 {
-		percent = 100.0 * float64(events) / float64(totalEvents)
-	}
-	eps := 0.0
-	if elapsed.Seconds() > 0 {
-		eps = float64(events) / elapsed.Seconds()
-	}
-	return CountRate{Events: events, Percent: percent, EPS: eps}
-}
-
-func latencyHistogram(vals []float64, totalEvents int) map[string]int {
-	hist := map[string]int{
-		"0-50ms":     0,
-		"50-100ms":   0,
-		"100-150ms":  0,
-		"150-200ms":  0,
-		"200-300ms":  0,
-		"300-350ms":  0,
-		"350-500ms":  0,
-		">500/error": 0,
-	}
-	valid := 0
-	for _, v := range vals {
-		if v < 0 {
-			continue
-		}
-		valid++
-		switch {
-		case v <= 50:
-			hist["0-50ms"]++
-		case v <= 100:
-			hist["50-100ms"]++
-		case v <= 150:
-			hist["100-150ms"]++
-		case v <= 200:
-			hist["150-200ms"]++
-		case v <= 300:
-			hist["200-300ms"]++
-		case v <= 350:
-			hist["300-350ms"]++
-		case v <= 500:
-			hist["350-500ms"]++
-		default:
-			hist[">500/error"]++
-		}
-	}
-	if totalEvents > valid {
-		hist[">500/error"] += totalEvents - valid
-	}
-	return hist
-}
-
-func valueKey(v interface{}) string {
-	if v == nil {
-		return "<null>"
-	}
-	return fmt.Sprintf("%v", v)
-}
-
-func workloadIndex(eventIdx int, eventCount int, eventOffset int, eventStride int) int {
-	if eventCount <= 0 {
-		return 0
-	}
+func workloadEventAt(workload Workload, eventIdx int, eventOffset int, eventStride int) WorkloadEvent {
 	if eventStride <= 0 {
 		eventStride = 1
 	}
-	idx := (eventOffset + eventIdx*eventStride) % eventCount
-	if idx < 0 {
-		idx += eventCount
+	sourceIdx := (eventOffset + eventIdx*eventStride) % len(workload.Events)
+	if sourceIdx < 0 {
+		sourceIdx += len(workload.Events)
 	}
-	return idx
+	return workload.Events[sourceIdx]
 }
 
-func mix64(v uint64) uint64 {
-	v += 0x9e3779b97f4a7c15
-	v = (v ^ (v >> 30)) * 0xbf58476d1ce4e5b9
-	v = (v ^ (v >> 27)) * 0x94d049bb133111eb
-	return v ^ (v >> 31)
-}
-
-func selectedWorkloadIndex(eventIdx int, eventCount int, eventOffset int, eventStride int, eventSampling string, eventRandomSeed int64) int {
-	if eventCount <= 0 {
-		return 0
-	}
-	if eventSampling != "random" {
-		return workloadIndex(eventIdx, eventCount, eventOffset, eventStride)
-	}
-	if eventStride <= 0 {
-		eventStride = 1
-	}
-	logicalEventIdx := int64(eventOffset) + int64(eventIdx)*int64(eventStride)
-	seed := uint64(eventRandomSeed)
-	mixed := mix64(seed ^ uint64(logicalEventIdx))
-	return int(mixed % uint64(eventCount))
-}
-
-func sourceEventKey(event WorkloadEvent, fallbackIdx int) string {
-	if event.Event != "" {
-		return event.Event
-	}
-	if event.Index >= 0 {
-		return fmt.Sprintf("workload_index:%d", event.Index)
-	}
-	return fmt.Sprintf("workload_index:%d", fallbackIdx)
-}
-
-func bindingSetKey(event WorkloadEvent) string {
-	if len(event.Bindings) == 0 {
-		return ""
-	}
-	fields := make([]string, 0, len(event.Bindings))
-	for field := range event.Bindings {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-	parts := make([]string, 0, len(fields))
-	for _, field := range fields {
-		parts = append(parts, field+"="+valueKey(event.Bindings[field]))
-	}
-	return strings.Join(parts, "\x1f")
-}
-
-func bindingSetHash(event WorkloadEvent) string {
-	key := bindingSetKey(event)
-	if key == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(sum[:])
-}
-
-func incrementCounter(counter map[string]int, key string) {
-	if key == "" {
-		key = "<empty>"
-	}
-	counter[key]++
-}
-
-func bindingStats(values map[string]map[string]int) map[string]BindingFieldStats {
-	out := make(map[string]BindingFieldStats, len(values))
-	for field, counts := range values {
-		maxValue := ""
-		maxRepeat := 0
-		for value, count := range counts {
-			if count > maxRepeat || (count == maxRepeat && value < maxValue) {
-				maxValue = value
-				maxRepeat = count
-			}
-		}
-		out[field] = BindingFieldStats{
-			Distinct:  len(counts),
-			MaxRepeat: maxRepeat,
-			MaxValue:  maxValue,
-		}
-	}
-	return out
-}
-
-func registerTLSConfig(cfg DBConfig) (string, error) {
-	if cfg.SSL == nil || cfg.SSL.CA == "" {
-		return "", nil
-	}
-	pem, err := os.ReadFile(cfg.SSL.CA)
-	if err != nil {
-		return "", fmt.Errorf("read ssl ca %s: %w", cfg.SSL.CA, err)
-	}
-	roots := x509.NewCertPool()
-	if ok := roots.AppendCertsFromPEM(pem); !ok {
-		return "", fmt.Errorf("ssl ca %s did not contain a PEM certificate", cfg.SSL.CA)
-	}
-	name := "tidb-verify-identity"
-	tlsConfig := &tls.Config{
-		RootCAs:    roots,
-		ServerName: cfg.Host,
-		MinVersion: tls.VersionTLS12,
-	}
-	if err := mysql.RegisterTLSConfig(name, tlsConfig); err != nil && !strings.Contains(err.Error(), "already registered") {
-		return "", err
-	}
-	return name, nil
-}
-
-func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, writeTimeout time.Duration, isolation string, maxExecMS int, tlsConfigName string) string {
+func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, writeTimeout time.Duration, isolation string, maxExecMS int) string {
 	c := mysql.NewConfig()
 	c.User = cfg.User
 	c.Passwd = cfg.Password
@@ -594,9 +264,6 @@ func mysqlDSN(cfg DBConfig, timeout time.Duration, readTimeout time.Duration, wr
 	c.Timeout = timeout
 	c.ReadTimeout = readTimeout
 	c.WriteTimeout = writeTimeout
-	if tlsConfigName != "" {
-		c.TLSConfig = tlsConfigName
-	}
 	c.Params = map[string]string{
 		"charset":   "utf8mb4",
 		"parseTime": "true",
@@ -651,10 +318,6 @@ func fetchRows(rows *sql.Rows) error {
 	return rows.Err()
 }
 
-func elapsedMS(start time.Time) float64 {
-	return float64(time.Since(start).Microseconds()) / 1000.0
-}
-
 func mysqlPlaceholders(sqlText string) string {
 	var out strings.Builder
 	out.Grow(len(sqlText))
@@ -698,16 +361,9 @@ func worker(
 	queryTimeout time.Duration,
 ) {
 	metrics := WorkerMetrics{
-		QueryMS:           make([]float64, 0, 256),
-		QueueMS:           make([]float64, 0, 256),
-		PrepareMS:         make([]float64, 0, 256),
-		ExecMS:            make([]float64, 0, 256),
-		DrainMS:           make([]float64, 0, 256),
-		QueryByTemplate:   make(map[int][]float64),
-		EventMSByTemplate: make(map[int][]float64),
-		Miss300ByTemplate: make(map[int]int),
-		Miss350ByTemplate: make(map[int]int),
-		Miss500ByTemplate: make(map[int]int),
+		QueryMS:         make([]float64, 0, 256),
+		QueueMS:         make([]float64, 0, 256),
+		QueryByTemplate: make(map[int][]float64),
 	}
 	defer func() { metricsCh <- metrics }()
 
@@ -767,30 +423,23 @@ func worker(
 		state := &eventStates[task.EventIdx]
 		success := false
 		queryMS := 0.0
-		prepareMS := 0.0
-		execMS := 0.0
-		drainMS := 0.0
 		if task.Skip {
 			success = true
+			atomic.AddInt64(&state.Skipped, 1)
 		} else {
-			prepareStarted := time.Now()
 			stmt, err := prepare(runCtx, task.TemplateIdx)
-			prepareMS = elapsedMS(prepareStarted)
+			start := time.Now()
 			if err == nil {
 				qctx := runCtx
 				cancel := func() {}
 				if queryTimeout > 0 {
 					qctx, cancel = context.WithTimeout(runCtx, queryTimeout)
 				}
-				execStarted := time.Now()
 				rows, qerr := stmt.QueryContext(qctx, task.Params...)
-				execMS = elapsedMS(execStarted)
-				if qerr == nil {
-					drainStarted := time.Now()
-					qerr = fetchRows(rows)
-					drainMS = elapsedMS(drainStarted)
-				}
 				cancel()
+				if qerr == nil {
+					qerr = fetchRows(rows)
+				}
 				if qerr == nil {
 					success = true
 				} else {
@@ -805,47 +454,24 @@ func worker(
 					metrics.FirstErrors = append(metrics.FirstErrors, err.Error())
 				}
 			}
-			queryMS = execMS + drainMS
+			queryMS = float64(time.Since(start).Microseconds()) / 1000.0
 		}
 		metrics.QueryMS = append(metrics.QueryMS, queryMS)
 		metrics.QueryByTemplate[task.TemplateIdx] = append(metrics.QueryByTemplate[task.TemplateIdx], queryMS)
-		metrics.PrepareMS = append(metrics.PrepareMS, prepareMS)
-		metrics.ExecMS = append(metrics.ExecMS, execMS)
-		metrics.DrainMS = append(metrics.DrainMS, drainMS)
 		completedNs := time.Now().UnixNano()
-		startNs := atomic.LoadInt64(&state.StartNs)
-		eventMS := float64(completedNs-startNs) / 1e6
-		metrics.EventMSByTemplate[task.TemplateIdx] = append(metrics.EventMSByTemplate[task.TemplateIdx], eventMS)
 		if success {
-			state.recordSQLSuccess(queryMS)
-			if eventMS <= 300 {
-				atomic.AddInt64(&state.BundlesBy300, 1)
-			}
-			if eventMS <= 350 {
-				atomic.AddInt64(&state.BundlesBy350, 1)
-			}
-			if eventMS <= 500 {
-				atomic.AddInt64(&state.BundlesBy500, 1)
-			}
 			if atomic.AddInt64(&state.Successes, 1) == 60 {
 				atomic.CompareAndSwapInt64(&state.Score60Ns, 0, completedNs)
 			}
 		} else {
 			atomic.AddInt64(&state.Errors, 1)
 		}
-		if !success || eventMS > 300 {
-			metrics.Miss300ByTemplate[task.TemplateIdx]++
-		}
-		if !success || eventMS > 350 {
-			metrics.Miss350ByTemplate[task.TemplateIdx]++
-		}
-		if !success || eventMS > 500 {
-			metrics.Miss500ByTemplate[task.TemplateIdx]++
-		}
 		if atomic.AddInt64(&state.Remaining, -1) == 0 {
+			startNs := atomic.LoadInt64(&state.StartNs)
 			score60Ns := atomic.LoadInt64(&state.Score60Ns)
 			successes := atomic.LoadInt64(&state.Successes)
 			errorsN := atomic.LoadInt64(&state.Errors)
+			skipped := atomic.LoadInt64(&state.Skipped)
 			score60MS := -1.0
 			if score60Ns > 0 {
 				score60MS = float64(score60Ns-startNs) / 1e6
@@ -854,28 +480,17 @@ func worker(
 			if successes == int64(len(templates)) {
 				full65MS = float64(completedNs-startNs) / 1e6
 			}
-			sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := state.sqlOnlyTimings(len(templates))
 			eventDone <- EventResult{
-				EventIdx:        task.EventIdx,
-				WorkloadIdx:     task.WorkloadIdx,
-				SourceEvent:     task.SourceEvent,
-				BindingSetHash:  task.BindingSetHash,
-				Kind:            task.Kind,
-				HotField:        task.HotField,
-				MS:              float64(completedNs-startNs) / 1e6,
-				Score60MS:       score60MS,
-				Full65MS:        full65MS,
-				SQLScore60MS:    sqlScore60MS,
-				SQLFull65MS:     sqlFull65MS,
-				Successes:       successes,
-				Errors:          errorsN,
-				BundlesBy300:    atomic.LoadInt64(&state.BundlesBy300),
-				BundlesBy350:    atomic.LoadInt64(&state.BundlesBy350),
-				BundlesBy500:    atomic.LoadInt64(&state.BundlesBy500),
-				SQLBundlesBy300: sqlBundlesBy300,
-				SQLBundlesBy350: sqlBundlesBy350,
-				SQLBundlesBy500: sqlBundlesBy500,
-				CompletedAt:     completedNs,
+				EventIdx:     task.EventIdx,
+				MS:           float64(completedNs-startNs) / 1e6,
+				Score60MS:    score60MS,
+				Full65MS:     full65MS,
+				SqlScore60MS: -1,
+				SqlFull65MS:  -1,
+				Successes:    successes,
+				Errors:       errorsN,
+				Skipped:      int(skipped),
+				CompletedAt:  completedNs,
 			}
 		}
 	}
@@ -887,20 +502,7 @@ func (m *FanoutMetrics) recordBatch(outcomes []QueryOutcome) {
 	for _, out := range outcomes {
 		m.QueryMS = append(m.QueryMS, out.QueryMS)
 		m.QueueMS = append(m.QueueMS, out.QueueMS)
-		m.PrepareMS = append(m.PrepareMS, out.PrepareMS)
-		m.ExecMS = append(m.ExecMS, out.ExecMS)
-		m.DrainMS = append(m.DrainMS, out.DrainMS)
 		m.QueryByTemplate[out.TemplateIdx] = append(m.QueryByTemplate[out.TemplateIdx], out.QueryMS)
-		m.EventMSByTemplate[out.TemplateIdx] = append(m.EventMSByTemplate[out.TemplateIdx], out.EventMS)
-		if !out.Success || out.EventMS > 300 {
-			m.Miss300ByTemplate[out.TemplateIdx]++
-		}
-		if !out.Success || out.EventMS > 350 {
-			m.Miss350ByTemplate[out.TemplateIdx]++
-		}
-		if !out.Success || out.EventMS > 500 {
-			m.Miss500ByTemplate[out.TemplateIdx]++
-		}
 		if !out.Success {
 			m.Errors++
 			if out.Error != "" && len(m.FirstErrors) < 20 {
@@ -908,45 +510,6 @@ func (m *FanoutMetrics) recordBatch(outcomes []QueryOutcome) {
 			}
 		}
 	}
-}
-
-func (state *EventState) recordSQLSuccess(queryMS float64) {
-	state.SQLMu.Lock()
-	state.SQLSuccessMS = append(state.SQLSuccessMS, queryMS)
-	state.SQLMu.Unlock()
-}
-
-func (state *EventState) sqlOnlyTimings(templateCount int) (float64, float64, int64, int64, int64) {
-	state.SQLMu.Lock()
-	successMS := append([]float64(nil), state.SQLSuccessMS...)
-	state.SQLMu.Unlock()
-	return sqlOnlyTimingsFromSuccessMS(successMS, templateCount)
-}
-
-func sqlOnlyTimingsFromSuccessMS(successMS []float64, templateCount int) (float64, float64, int64, int64, int64) {
-	bundlesBy300 := int64(countLE(successMS, 300))
-	bundlesBy350 := int64(countLE(successMS, 350))
-	bundlesBy500 := int64(countLE(successMS, 500))
-	score60MS := -1.0
-	full65MS := -1.0
-	if len(successMS) >= 60 {
-		sort.Float64s(successMS)
-		score60MS = successMS[59]
-	}
-	if len(successMS) == templateCount {
-		full65MS = successMS[len(successMS)-1]
-	}
-	return score60MS, full65MS, bundlesBy300, bundlesBy350, bundlesBy500
-}
-
-func sqlOnlyEventTimings(outcomes []QueryOutcome, templateCount int) (float64, float64, int64, int64, int64) {
-	successMS := make([]float64, 0, len(outcomes))
-	for _, out := range outcomes {
-		if out.Success {
-			successMS = append(successMS, out.QueryMS)
-		}
-	}
-	return sqlOnlyTimingsFromSuccessMS(successMS, templateCount)
 }
 
 func prewarmPool(ctx context.Context, db *sql.DB, connections int) (int, []string) {
@@ -988,7 +551,6 @@ func prewarmPool(ctx context.Context, db *sql.DB, connections int) (int, []strin
 func runOneEventFanout(
 	runCtx context.Context,
 	eventIdx int,
-	workloadIdx int,
 	sourceEvent WorkloadEvent,
 	templateCount int,
 	templateIdx map[string]int,
@@ -1003,9 +565,6 @@ func runOneEventFanout(
 	var successes int64
 	var errorsN int64
 	var score60Ns int64
-	var bundlesBy300 int64
-	var bundlesBy350 int64
-	var bundlesBy500 int64
 	var wg sync.WaitGroup
 
 	for pos, bundle := range sourceEvent.Bundles {
@@ -1021,32 +580,26 @@ func runOneEventFanout(
 			defer wg.Done()
 			queueMS := float64(time.Since(eventStart).Microseconds()) / 1000.0
 			success := false
+			skipped := false
 			queryMS := 0.0
-			prepareMS := 0.0
-			execMS := 0.0
-			drainMS := 0.0
 			errText := ""
 			if bundle.Skip {
 				success = true
+				skipped = true
 			} else {
-				prepareStarted := time.Now()
 				stmt, err := prepare(runCtx, idx)
-				prepareMS = elapsedMS(prepareStarted)
+				start := time.Now()
 				if err == nil {
 					qctx := runCtx
 					cancel := func() {}
 					if queryTimeout > 0 {
 						qctx, cancel = context.WithTimeout(runCtx, queryTimeout)
 					}
-					execStarted := time.Now()
 					rows, qerr := stmt.QueryContext(qctx, bundle.Params...)
-					execMS = elapsedMS(execStarted)
-					if qerr == nil {
-						drainStarted := time.Now()
-						qerr = fetchRows(rows)
-						drainMS = elapsedMS(drainStarted)
-					}
 					cancel()
+					if qerr == nil {
+						qerr = fetchRows(rows)
+					}
 					if qerr == nil {
 						success = true
 					} else {
@@ -1055,20 +608,11 @@ func runOneEventFanout(
 				} else {
 					errText = err.Error()
 				}
-				queryMS = execMS + drainMS
+				queryMS = float64(time.Since(start).Microseconds()) / 1000.0
 			}
 			completedNs := time.Now().UnixNano()
-			eventElapsedMS := float64(completedNs-eventStartNs) / 1e6
+			completedMS := float64(completedNs-eventStartNs) / 1e6
 			if success {
-				if eventElapsedMS <= 300 {
-					atomic.AddInt64(&bundlesBy300, 1)
-				}
-				if eventElapsedMS <= 350 {
-					atomic.AddInt64(&bundlesBy350, 1)
-				}
-				if eventElapsedMS <= 500 {
-					atomic.AddInt64(&bundlesBy500, 1)
-				}
 				if atomic.AddInt64(&successes, 1) == 60 {
 					atomic.CompareAndSwapInt64(&score60Ns, 0, completedNs)
 				}
@@ -1079,20 +623,21 @@ func runOneEventFanout(
 				TemplateIdx: idx,
 				QueryMS:     queryMS,
 				QueueMS:     queueMS,
-				PrepareMS:   prepareMS,
-				ExecMS:      execMS,
-				DrainMS:     drainMS,
-				EventMS:     eventElapsedMS,
+				CompletedMS: completedMS,
 				Success:     success,
+				Skipped:     skipped,
 				Error:       errText,
 			}
 		}(pos, idx, bundle)
 	}
 
 	wg.Wait()
-	metrics.recordBatch(outcomes)
+	// Capture the event-completion timestamp IMMEDIATELY after wg.Wait() and
+	// BEFORE recordBatch(): recordBatch acquires the single global FanoutMetrics
+	// mutex and must not be on the event-completion timing path, or full65/event
+	// wall-clock latency would be inflated by client-side lock-wait under load.
 	completedNs := time.Now().UnixNano()
-	sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
+	metrics.recordBatch(outcomes)
 	score60MS := -1.0
 	if scoreNs := atomic.LoadInt64(&score60Ns); scoreNs > 0 {
 		score60MS = float64(scoreNs-eventStartNs) / 1e6
@@ -1102,27 +647,54 @@ func runOneEventFanout(
 	if successesN == int64(templateCount) {
 		full65MS = float64(completedNs-eventStartNs) / 1e6
 	}
+	by300, by350, by500 := 0, 0, 0
+	skipped := 0
+	for _, outcome := range outcomes {
+		if outcome.Skipped {
+			skipped++
+		}
+		if !outcome.Success {
+			continue
+		}
+		if outcome.CompletedMS <= 300 {
+			by300++
+		}
+		if outcome.CompletedMS <= 350 {
+			by350++
+		}
+		if outcome.CompletedMS <= 500 {
+			by500++
+		}
+	}
+
+	sqlScore60MS, sqlFull65MS := -1.0, -1.0
+	sqlDurations := make([]float64, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		if outcome.Success {
+			sqlDurations = append(sqlDurations, outcome.QueryMS)
+		}
+	}
+	sort.Float64s(sqlDurations)
+	if len(sqlDurations) >= 60 {
+		sqlScore60MS = sqlDurations[59]
+	}
+	if len(sqlDurations) >= templateCount {
+		sqlFull65MS = sqlDurations[templateCount-1]
+	}
 	eventDone <- EventResult{
-		EventIdx:        eventIdx,
-		WorkloadIdx:     workloadIdx,
-		SourceEvent:     sourceEventKey(sourceEvent, workloadIdx),
-		BindingSetHash:  bindingSetHash(sourceEvent),
-		Kind:            sourceEvent.Kind,
-		HotField:        valueKey(sourceEvent.HotField),
-		MS:              float64(completedNs-eventStartNs) / 1e6,
-		Score60MS:       score60MS,
-		Full65MS:        full65MS,
-		SQLScore60MS:    sqlScore60MS,
-		SQLFull65MS:     sqlFull65MS,
-		Successes:       successesN,
-		Errors:          atomic.LoadInt64(&errorsN),
-		BundlesBy300:    atomic.LoadInt64(&bundlesBy300),
-		BundlesBy350:    atomic.LoadInt64(&bundlesBy350),
-		BundlesBy500:    atomic.LoadInt64(&bundlesBy500),
-		SQLBundlesBy300: sqlBundlesBy300,
-		SQLBundlesBy350: sqlBundlesBy350,
-		SQLBundlesBy500: sqlBundlesBy500,
-		CompletedAt:     completedNs,
+		EventIdx:     eventIdx,
+		MS:           float64(completedNs-eventStartNs) / 1e6,
+		Score60MS:    score60MS,
+		Full65MS:     full65MS,
+		By300:        by300,
+		By350:        by350,
+		By500:        by500,
+		SqlScore60MS: sqlScore60MS,
+		SqlFull65MS:  sqlFull65MS,
+		Successes:    successesN,
+		Errors:       atomic.LoadInt64(&errorsN),
+		Skipped:      skipped,
+		CompletedAt:  completedNs,
 	}
 }
 
@@ -1132,6 +704,8 @@ func runEventFanout(
 	workload Workload,
 	templateIdx map[string]int,
 	eventsToRun int,
+	eventOffset int,
+	eventStride int,
 	connections int,
 	setupTimeout time.Duration,
 	prepareAll bool,
@@ -1139,10 +713,6 @@ func runEventFanout(
 	targetEventEPS float64,
 	maxPending int,
 	queryTimeout time.Duration,
-	eventSampling string,
-	eventRandomSeed int64,
-	eventOffset int,
-	eventStride int,
 ) RunStats {
 	setupStarted := time.Now()
 	setupCtx, cancelSetup := context.WithTimeout(runCtx, setupTimeout)
@@ -1201,16 +771,9 @@ func runEventFanout(
 	started := time.Now()
 	eventDone := make(chan EventResult, eventsToRun)
 	metrics := &FanoutMetrics{
-		QueryMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		QueueMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		PrepareMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
-		ExecMS:            make([]float64, 0, eventsToRun*len(workload.Templates)),
-		DrainMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		QueryByTemplate:   make(map[int][]float64, len(workload.Templates)),
-		EventMSByTemplate: make(map[int][]float64, len(workload.Templates)),
-		Miss300ByTemplate: make(map[int]int, len(workload.Templates)),
-		Miss350ByTemplate: make(map[int]int, len(workload.Templates)),
-		Miss500ByTemplate: make(map[int]int, len(workload.Templates)),
+		QueryMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
+		QueueMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
+		QueryByTemplate: make(map[int][]float64, len(workload.Templates)),
 	}
 	eventResults := make([]EventResult, 0, eventsToRun)
 	var completedCount int64
@@ -1241,9 +804,8 @@ func runEventFanout(
 				time.Sleep(wait)
 			}
 		}
-		sourceIdx := selectedWorkloadIndex(eventIdx, len(workload.Events), eventOffset, eventStride, eventSampling, eventRandomSeed)
-		sourceEvent := workload.Events[sourceIdx]
-		go runOneEventFanout(runCtx, eventIdx, sourceIdx, sourceEvent, len(workload.Templates), templateIdx, prepare, queryTimeout, metrics, eventDone)
+		sourceEvent := workloadEventAt(workload, eventIdx, eventOffset, eventStride)
+		go runOneEventFanout(runCtx, eventIdx, sourceEvent, len(workload.Templates), templateIdx, prepare, queryTimeout, metrics, eventDone)
 	}
 	<-collectorDone
 	eventMu.Lock()
@@ -1252,38 +814,19 @@ func runEventFanout(
 
 	metrics.mu.Lock()
 	stats := RunStats{
-		Started:           started,
-		Elapsed:           elapsed,
-		EventResults:      eventResults,
-		QueryMS:           append([]float64(nil), metrics.QueryMS...),
-		QueueMS:           append([]float64(nil), metrics.QueueMS...),
-		PrepareMS:         append([]float64(nil), metrics.PrepareMS...),
-		ExecMS:            append([]float64(nil), metrics.ExecMS...),
-		DrainMS:           append([]float64(nil), metrics.DrainMS...),
-		QueryByTemplate:   make(map[int][]float64, len(metrics.QueryByTemplate)),
-		EventMSByTemplate: make(map[int][]float64, len(metrics.EventMSByTemplate)),
-		Miss300ByTemplate: make(map[int]int, len(metrics.Miss300ByTemplate)),
-		Miss350ByTemplate: make(map[int]int, len(metrics.Miss350ByTemplate)),
-		Miss500ByTemplate: make(map[int]int, len(metrics.Miss500ByTemplate)),
-		TotalErrors:       metrics.Errors,
-		FirstQueryErrors:  append([]string(nil), metrics.FirstErrors...),
-		ReadyWorkers:      readyWorkers,
-		SetupErrors:       setupErrors,
+		Started:          started,
+		Elapsed:          elapsed,
+		EventResults:     eventResults,
+		QueryMS:          append([]float64(nil), metrics.QueryMS...),
+		QueueMS:          append([]float64(nil), metrics.QueueMS...),
+		QueryByTemplate:  make(map[int][]float64, len(metrics.QueryByTemplate)),
+		TotalErrors:      metrics.Errors,
+		FirstQueryErrors: append([]string(nil), metrics.FirstErrors...),
+		ReadyWorkers:     readyWorkers,
+		SetupErrors:      setupErrors,
 	}
 	for idx, vals := range metrics.QueryByTemplate {
 		stats.QueryByTemplate[idx] = append([]float64(nil), vals...)
-	}
-	for idx, vals := range metrics.EventMSByTemplate {
-		stats.EventMSByTemplate[idx] = append([]float64(nil), vals...)
-	}
-	for idx, count := range metrics.Miss300ByTemplate {
-		stats.Miss300ByTemplate[idx] = count
-	}
-	for idx, count := range metrics.Miss350ByTemplate {
-		stats.Miss350ByTemplate[idx] = count
-	}
-	for idx, count := range metrics.Miss500ByTemplate {
-		stats.Miss500ByTemplate[idx] = count
 	}
 	metrics.mu.Unlock()
 	return stats
@@ -1379,7 +922,6 @@ func prewarmConnSlots(
 func runOneEventConnFanout(
 	runCtx context.Context,
 	eventIdx int,
-	workloadIdx int,
 	sourceEvent WorkloadEvent,
 	templateCount int,
 	templateIdx map[string]int,
@@ -1395,9 +937,6 @@ func runOneEventConnFanout(
 	var successes int64
 	var errorsN int64
 	var score60Ns int64
-	var bundlesBy300 int64
-	var bundlesBy350 int64
-	var bundlesBy500 int64
 	var wg sync.WaitGroup
 
 	for pos, bundle := range sourceEvent.Bundles {
@@ -1412,37 +951,31 @@ func runOneEventConnFanout(
 		go func(pos int, idx int, bundle BundleRun) {
 			defer wg.Done()
 			success := false
+			skipped := false
 			queryMS := 0.0
-			prepareMS := 0.0
-			execMS := 0.0
-			drainMS := 0.0
 			errText := ""
 			queueStart := time.Now()
 			queueMS := 0.0
 			if bundle.Skip {
 				success = true
+				skipped = true
 				queueMS = float64(time.Since(eventStart).Microseconds()) / 1000.0
 			} else {
 				slot := <-readySlots
 				queueMS = float64(time.Since(queueStart).Microseconds()) / 1000.0
-				prepareStarted := time.Now()
+				start := time.Now()
 				stmt, err := slot.Stmt(runCtx, idx, templates)
-				prepareMS = elapsedMS(prepareStarted)
 				if err == nil {
 					qctx := runCtx
 					cancel := func() {}
 					if queryTimeout > 0 {
 						qctx, cancel = context.WithTimeout(runCtx, queryTimeout)
 					}
-					execStarted := time.Now()
 					rows, qerr := stmt.QueryContext(qctx, bundle.Params...)
-					execMS = elapsedMS(execStarted)
-					if qerr == nil {
-						drainStarted := time.Now()
-						qerr = fetchRows(rows)
-						drainMS = elapsedMS(drainStarted)
-					}
 					cancel()
+					if qerr == nil {
+						qerr = fetchRows(rows)
+					}
 					if qerr == nil {
 						success = true
 					} else {
@@ -1451,21 +984,12 @@ func runOneEventConnFanout(
 				} else {
 					errText = err.Error()
 				}
-				queryMS = execMS + drainMS
+				queryMS = float64(time.Since(start).Microseconds()) / 1000.0
 				readySlots <- slot
 			}
 			completedNs := time.Now().UnixNano()
-			eventElapsedMS := float64(completedNs-eventStartNs) / 1e6
+			completedMS := float64(completedNs-eventStartNs) / 1e6
 			if success {
-				if eventElapsedMS <= 300 {
-					atomic.AddInt64(&bundlesBy300, 1)
-				}
-				if eventElapsedMS <= 350 {
-					atomic.AddInt64(&bundlesBy350, 1)
-				}
-				if eventElapsedMS <= 500 {
-					atomic.AddInt64(&bundlesBy500, 1)
-				}
 				if atomic.AddInt64(&successes, 1) == 60 {
 					atomic.CompareAndSwapInt64(&score60Ns, 0, completedNs)
 				}
@@ -1476,20 +1000,20 @@ func runOneEventConnFanout(
 				TemplateIdx: idx,
 				QueryMS:     queryMS,
 				QueueMS:     queueMS,
-				PrepareMS:   prepareMS,
-				ExecMS:      execMS,
-				DrainMS:     drainMS,
-				EventMS:     eventElapsedMS,
+				CompletedMS: completedMS,
 				Success:     success,
+				Skipped:     skipped,
 				Error:       errText,
 			}
 		}(pos, idx, bundle)
 	}
 
 	wg.Wait()
-	metrics.recordBatch(outcomes)
+	// Capture the event-completion timestamp IMMEDIATELY after wg.Wait() and
+	// BEFORE recordBatch(): recordBatch acquires the single global FanoutMetrics
+	// mutex and must not be on the event-completion timing path.
 	completedNs := time.Now().UnixNano()
-	sqlScore60MS, sqlFull65MS, sqlBundlesBy300, sqlBundlesBy350, sqlBundlesBy500 := sqlOnlyEventTimings(outcomes, templateCount)
+	metrics.recordBatch(outcomes)
 	score60MS := -1.0
 	if scoreNs := atomic.LoadInt64(&score60Ns); scoreNs > 0 {
 		score60MS = float64(scoreNs-eventStartNs) / 1e6
@@ -1499,27 +1023,54 @@ func runOneEventConnFanout(
 	if successesN == int64(templateCount) {
 		full65MS = float64(completedNs-eventStartNs) / 1e6
 	}
+	by300, by350, by500 := 0, 0, 0
+	skipped := 0
+	for _, outcome := range outcomes {
+		if outcome.Skipped {
+			skipped++
+		}
+		if !outcome.Success {
+			continue
+		}
+		if outcome.CompletedMS <= 300 {
+			by300++
+		}
+		if outcome.CompletedMS <= 350 {
+			by350++
+		}
+		if outcome.CompletedMS <= 500 {
+			by500++
+		}
+	}
+
+	sqlScore60MS, sqlFull65MS := -1.0, -1.0
+	sqlDurations := make([]float64, 0, len(outcomes))
+	for _, outcome := range outcomes {
+		if outcome.Success {
+			sqlDurations = append(sqlDurations, outcome.QueryMS)
+		}
+	}
+	sort.Float64s(sqlDurations)
+	if len(sqlDurations) >= 60 {
+		sqlScore60MS = sqlDurations[59]
+	}
+	if len(sqlDurations) >= templateCount {
+		sqlFull65MS = sqlDurations[templateCount-1]
+	}
 	eventDone <- EventResult{
-		EventIdx:        eventIdx,
-		WorkloadIdx:     workloadIdx,
-		SourceEvent:     sourceEventKey(sourceEvent, workloadIdx),
-		BindingSetHash:  bindingSetHash(sourceEvent),
-		Kind:            sourceEvent.Kind,
-		HotField:        valueKey(sourceEvent.HotField),
-		MS:              float64(completedNs-eventStartNs) / 1e6,
-		Score60MS:       score60MS,
-		Full65MS:        full65MS,
-		SQLScore60MS:    sqlScore60MS,
-		SQLFull65MS:     sqlFull65MS,
-		Successes:       successesN,
-		Errors:          atomic.LoadInt64(&errorsN),
-		BundlesBy300:    atomic.LoadInt64(&bundlesBy300),
-		BundlesBy350:    atomic.LoadInt64(&bundlesBy350),
-		BundlesBy500:    atomic.LoadInt64(&bundlesBy500),
-		SQLBundlesBy300: sqlBundlesBy300,
-		SQLBundlesBy350: sqlBundlesBy350,
-		SQLBundlesBy500: sqlBundlesBy500,
-		CompletedAt:     completedNs,
+		EventIdx:     eventIdx,
+		MS:           float64(completedNs-eventStartNs) / 1e6,
+		Score60MS:    score60MS,
+		Full65MS:     full65MS,
+		By300:        by300,
+		By350:        by350,
+		By500:        by500,
+		SqlScore60MS: sqlScore60MS,
+		SqlFull65MS:  sqlFull65MS,
+		Successes:    successesN,
+		Errors:       atomic.LoadInt64(&errorsN),
+		Skipped:      skipped,
+		CompletedAt:  completedNs,
 	}
 }
 
@@ -1529,6 +1080,8 @@ func runConnFanout(
 	workload Workload,
 	templateIdx map[string]int,
 	eventsToRun int,
+	eventOffset int,
+	eventStride int,
 	connections int,
 	setupTimeout time.Duration,
 	prepareAll bool,
@@ -1538,10 +1091,6 @@ func runConnFanout(
 	queryTimeout time.Duration,
 	isolation string,
 	maxExecMS int,
-	eventSampling string,
-	eventRandomSeed int64,
-	eventOffset int,
-	eventStride int,
 ) RunStats {
 	setupStarted := time.Now()
 	setupCtx, cancelSetup := context.WithTimeout(runCtx, setupTimeout)
@@ -1578,16 +1127,9 @@ func runConnFanout(
 	started := time.Now()
 	eventDone := make(chan EventResult, eventsToRun)
 	metrics := &FanoutMetrics{
-		QueryMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		QueueMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		PrepareMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
-		ExecMS:            make([]float64, 0, eventsToRun*len(workload.Templates)),
-		DrainMS:           make([]float64, 0, eventsToRun*len(workload.Templates)),
-		QueryByTemplate:   make(map[int][]float64, len(workload.Templates)),
-		EventMSByTemplate: make(map[int][]float64, len(workload.Templates)),
-		Miss300ByTemplate: make(map[int]int, len(workload.Templates)),
-		Miss350ByTemplate: make(map[int]int, len(workload.Templates)),
-		Miss500ByTemplate: make(map[int]int, len(workload.Templates)),
+		QueryMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
+		QueueMS:         make([]float64, 0, eventsToRun*len(workload.Templates)),
+		QueryByTemplate: make(map[int][]float64, len(workload.Templates)),
 	}
 	eventResults := make([]EventResult, 0, eventsToRun)
 	var completedCount int64
@@ -1618,9 +1160,8 @@ func runConnFanout(
 				time.Sleep(wait)
 			}
 		}
-		sourceIdx := selectedWorkloadIndex(eventIdx, len(workload.Events), eventOffset, eventStride, eventSampling, eventRandomSeed)
-		sourceEvent := workload.Events[sourceIdx]
-		go runOneEventConnFanout(runCtx, eventIdx, sourceIdx, sourceEvent, len(workload.Templates), templateIdx, workload.Templates, readySlots, queryTimeout, metrics, eventDone)
+		sourceEvent := workloadEventAt(workload, eventIdx, eventOffset, eventStride)
+		go runOneEventConnFanout(runCtx, eventIdx, sourceEvent, len(workload.Templates), templateIdx, workload.Templates, readySlots, queryTimeout, metrics, eventDone)
 	}
 	<-collectorDone
 	eventMu.Lock()
@@ -1629,394 +1170,26 @@ func runConnFanout(
 
 	metrics.mu.Lock()
 	stats := RunStats{
-		Started:           started,
-		Elapsed:           elapsed,
-		EventResults:      eventResults,
-		QueryMS:           append([]float64(nil), metrics.QueryMS...),
-		QueueMS:           append([]float64(nil), metrics.QueueMS...),
-		PrepareMS:         append([]float64(nil), metrics.PrepareMS...),
-		ExecMS:            append([]float64(nil), metrics.ExecMS...),
-		DrainMS:           append([]float64(nil), metrics.DrainMS...),
-		QueryByTemplate:   make(map[int][]float64, len(metrics.QueryByTemplate)),
-		EventMSByTemplate: make(map[int][]float64, len(metrics.EventMSByTemplate)),
-		Miss300ByTemplate: make(map[int]int, len(metrics.Miss300ByTemplate)),
-		Miss350ByTemplate: make(map[int]int, len(metrics.Miss350ByTemplate)),
-		Miss500ByTemplate: make(map[int]int, len(metrics.Miss500ByTemplate)),
-		TotalErrors:       metrics.Errors,
-		FirstQueryErrors:  append([]string(nil), metrics.FirstErrors...),
-		ReadyWorkers:      readyWorkers,
-		SetupErrors:       setupErrors,
+		Started:          started,
+		Elapsed:          elapsed,
+		EventResults:     eventResults,
+		QueryMS:          append([]float64(nil), metrics.QueryMS...),
+		QueueMS:          append([]float64(nil), metrics.QueueMS...),
+		QueryByTemplate:  make(map[int][]float64, len(metrics.QueryByTemplate)),
+		TotalErrors:      metrics.Errors,
+		FirstQueryErrors: append([]string(nil), metrics.FirstErrors...),
+		ReadyWorkers:     readyWorkers,
+		SetupErrors:      setupErrors,
 	}
 	for idx, vals := range metrics.QueryByTemplate {
 		stats.QueryByTemplate[idx] = append([]float64(nil), vals...)
-	}
-	for idx, vals := range metrics.EventMSByTemplate {
-		stats.EventMSByTemplate[idx] = append([]float64(nil), vals...)
-	}
-	for idx, count := range metrics.Miss300ByTemplate {
-		stats.Miss300ByTemplate[idx] = count
-	}
-	for idx, count := range metrics.Miss350ByTemplate {
-		stats.Miss350ByTemplate[idx] = count
-	}
-	for idx, count := range metrics.Miss500ByTemplate {
-		stats.Miss500ByTemplate[idx] = count
 	}
 	metrics.mu.Unlock()
 	return stats
 }
 
-func buildRealismReport(
-	workload Workload,
-	eventResults []EventResult,
-	eventSampling string,
-	eventRandomSeed int64,
-	eventOffset int,
-	eventStride int,
-	cacheState string,
-	cacheNote string,
-) RealismReport {
-	report := RealismReport{
-		CompletedEvents:       len(eventResults),
-		GeneratedWorkloadRows: len(workload.Events),
-		EventSampling:         eventSampling,
-		EventRandomSeed:       eventRandomSeed,
-		EventOffset:           eventOffset,
-		EventStride:           eventStride,
-		CacheState:            cacheState,
-		CacheNote:             cacheNote,
-		EventMix:              make(map[string]int),
-		HotFieldMix:           make(map[string]int),
-		BindingFields:         make(map[string]BindingFieldStats),
-	}
-	if len(workload.Events) == 0 || len(eventResults) == 0 {
-		return report
-	}
-	generatedUniqueEvents := make(map[string]struct{})
-	generatedBindingSets := make(map[string]struct{})
-	for idx, event := range workload.Events {
-		generatedUniqueEvents[sourceEventKey(event, idx)] = struct{}{}
-		if key := bindingSetKey(event); key != "" {
-			generatedBindingSets[key] = struct{}{}
-		}
-	}
-	report.UniqueSourceEvents = len(generatedUniqueEvents)
-	report.UniqueBindingSets = len(generatedBindingSets)
-
-	executedUniqueEvents := make(map[string]struct{})
-	executedBindingSets := make(map[string]struct{})
-	bindingValues := make(map[string]map[string]int)
-	reuseCounts := make([]int, len(workload.Events))
-	for _, result := range eventResults {
-		workloadIdx := result.WorkloadIdx
-		if workloadIdx < 0 || workloadIdx >= len(workload.Events) {
-			continue
-		}
-		reuseCounts[workloadIdx]++
-		event := workload.Events[workloadIdx]
-		executedUniqueEvents[sourceEventKey(event, workloadIdx)] = struct{}{}
-		if key := bindingSetKey(event); key != "" {
-			executedBindingSets[key] = struct{}{}
-		}
-		incrementCounter(report.EventMix, event.Kind)
-		incrementCounter(report.HotFieldMix, valueKey(event.HotField))
-		if len(event.Bindings) > 0 {
-			report.BindingFieldsAvailable = true
-			for field, value := range event.Bindings {
-				if _, ok := bindingValues[field]; !ok {
-					bindingValues[field] = make(map[string]int)
-				}
-				bindingValues[field][valueKey(value)]++
-			}
-		}
-	}
-	report.ExecutedUniqueEvents = len(executedUniqueEvents)
-	report.ExecutedBindingSets = len(executedBindingSets)
-	report.CycledWorkloadSample = len(eventResults) > len(executedUniqueEvents)
-	report.WorkloadRowReuseMin = reuseCounts[0]
-	report.WorkloadRowReuseMax = reuseCounts[0]
-	for _, count := range reuseCounts {
-		if count < report.WorkloadRowReuseMin {
-			report.WorkloadRowReuseMin = count
-		}
-		if count > report.WorkloadRowReuseMax {
-			report.WorkloadRowReuseMax = count
-		}
-	}
-	if report.BindingFieldsAvailable {
-		report.BindingFields = bindingStats(bindingValues)
-	}
-	return report
-}
-
-func classifyBundleMode(sqlText string) string {
-	lower := strings.ToLower(sqlText)
-	switch {
-	case strings.Contains(lower, "risk_feature_serving_wide") || strings.Contains(lower, "risk_feature_serving"):
-		return "serving"
-	case strings.Contains(lower, "daily_rollup") || strings.Contains(lower, "daily_distinct"):
-		return "preagg"
-	case strings.Contains(lower, "group_a_") || strings.Contains(lower, "group_b_") || strings.Contains(lower, "group_c_"):
-		return "preagg"
-	default:
-		return "runtime"
-	}
-}
-
-func bundleModeCounts(templates []Template) BundleModeCounts {
-	counts := BundleModeCounts{
-		ByGroup: make(map[string]BundleModeGroup),
-	}
-	for _, tmpl := range templates {
-		mode := classifyBundleMode(tmpl.SQL)
-		group := tmpl.Group
-		if group == "" {
-			group = "unknown"
-		}
-		row := counts.ByGroup[group]
-		switch mode {
-		case "serving":
-			counts.Serving++
-			row.Serving++
-		case "preagg":
-			counts.PreAgg++
-			row.PreAgg++
-		default:
-			counts.Runtime++
-			row.Runtime++
-		}
-		counts.Total++
-		row.Total++
-		counts.ByGroup[group] = row
-	}
-	return counts
-}
-
-func topTailDrivers(
-	templates []Template,
-	eventSummaries map[int]Summary,
-	sqlSummaries map[int]Summary,
-	miss300 map[int]int,
-	miss350 map[int]int,
-	miss500 map[int]int,
-	limit int,
-) []BundleTailReport {
-	type item struct {
-		Index        int
-		ID           string
-		EventSummary Summary
-		SQLSummary   Summary
-	}
-	items := make([]item, 0, len(templates))
-	for idx, tmpl := range templates {
-		items = append(items, item{
-			Index:        idx,
-			ID:           tmpl.BundleID,
-			EventSummary: eventSummaries[idx],
-			SQLSummary:   sqlSummaries[idx],
-		})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		leftMiss := miss500[items[i].Index]
-		rightMiss := miss500[items[j].Index]
-		if leftMiss != rightMiss {
-			return leftMiss > rightMiss
-		}
-		left, right := items[i].EventSummary, items[j].EventSummary
-		if left.P99 != right.P99 {
-			return left.P99 > right.P99
-		}
-		if left.P95 != right.P95 {
-			return left.P95 > right.P95
-		}
-		if left.Max != right.Max {
-			return left.Max > right.Max
-		}
-		return items[i].ID < items[j].ID
-	})
-	if len(items) < limit {
-		limit = len(items)
-	}
-	out := make([]BundleTailReport, 0, limit)
-	for _, item := range items[:limit] {
-		s := item.EventSummary
-		sqlS := item.SQLSummary
-		out = append(out, BundleTailReport{
-			BundleID: item.ID,
-			N:        s.N,
-			P95:      s.P95,
-			P99:      s.P99,
-			P999:     s.P999,
-			Max:      s.Max,
-			Over300:  miss300[item.Index],
-			Over350:  miss350[item.Index],
-			Over500:  miss500[item.Index],
-			SQLP95:   sqlS.P95,
-			SQLP99:   sqlS.P99,
-			SQLP999:  sqlS.P999,
-			SQLMax:   sqlS.Max,
-		})
-	}
-	return out
-}
-
-func buildCustomerReport(
-	workload Workload,
-	stats RunStats,
-	score60MS []float64,
-	full65MS []float64,
-	sqlScore60MS []float64,
-	sqlFull65MS []float64,
-	bundlesBy300 []float64,
-	bundlesBy350 []float64,
-	bundlesBy500 []float64,
-	eventBundleSummaries map[int]Summary,
-	bundleSummaries map[string]Summary,
-	eventsToRun int,
-	eventSampling string,
-	eventRandomSeed int64,
-	eventOffset int,
-	eventStride int,
-	cacheState string,
-	cacheNote string,
-) CustomerReport {
-	totalEvents := len(stats.EventResults)
-	sqlSummaries := make(map[int]Summary, len(workload.Templates))
-	for idx := range workload.Templates {
-		sqlSummaries[idx] = bundleSummaries[workload.Templates[idx].BundleID]
-	}
-	return CustomerReport{
-		LatencyScope:    "benchmark_harness_event_wall_clock_ms: starts before launching the 65 bundle tasks for one event and stops when the 60th/65th successful bundle returns; SQL-only latency is retained separately for database-side diagnosis",
-		CompletedEvents: totalEvents,
-		EventSLA: map[string]map[string]CountRate{
-			"score_ready_60_of_65": {
-				"300ms": countRate(score60MS, 300, totalEvents, stats.Elapsed),
-				"350ms": countRate(score60MS, 350, totalEvents, stats.Elapsed),
-				"500ms": countRate(score60MS, 500, totalEvents, stats.Elapsed),
-			},
-			"full_65_of_65": {
-				"300ms": countRate(full65MS, 300, totalEvents, stats.Elapsed),
-				"350ms": countRate(full65MS, 350, totalEvents, stats.Elapsed),
-				"500ms": countRate(full65MS, 500, totalEvents, stats.Elapsed),
-			},
-		},
-		EventLatency: map[string]LatencyReport{
-			"score_ready_60_of_65": {
-				Summary:   summarize(score60MS),
-				Histogram: latencyHistogram(score60MS, totalEvents),
-			},
-			"full_65_of_65": {
-				Summary:   summarize(full65MS),
-				Histogram: latencyHistogram(full65MS, totalEvents),
-			},
-		},
-		SQLOnlySLA: map[string]map[string]CountRate{
-			"score_ready_60_of_65": {
-				"300ms": countRate(sqlScore60MS, 300, totalEvents, stats.Elapsed),
-				"350ms": countRate(sqlScore60MS, 350, totalEvents, stats.Elapsed),
-				"500ms": countRate(sqlScore60MS, 500, totalEvents, stats.Elapsed),
-			},
-			"full_65_of_65": {
-				"300ms": countRate(sqlFull65MS, 300, totalEvents, stats.Elapsed),
-				"350ms": countRate(sqlFull65MS, 350, totalEvents, stats.Elapsed),
-				"500ms": countRate(sqlFull65MS, 500, totalEvents, stats.Elapsed),
-			},
-		},
-		SQLOnlyLatency: map[string]LatencyReport{
-			"score_ready_60_of_65": {
-				Summary:   summarize(sqlScore60MS),
-				Histogram: latencyHistogram(sqlScore60MS, totalEvents),
-			},
-			"full_65_of_65": {
-				Summary:   summarize(sqlFull65MS),
-				Histogram: latencyHistogram(sqlFull65MS, totalEvents),
-			},
-		},
-		AvgBundlesBy300MS: summarize(bundlesBy300).Avg,
-		AvgBundlesBy350MS: summarize(bundlesBy350).Avg,
-		AvgBundlesBy500MS: summarize(bundlesBy500).Avg,
-		Realism:           buildRealismReport(workload, stats.EventResults, eventSampling, eventRandomSeed, eventOffset, eventStride, cacheState, cacheNote),
-		BundleModeCounts:  bundleModeCounts(workload.Templates),
-		TailDrivers:       topTailDrivers(workload.Templates, eventBundleSummaries, sqlSummaries, stats.Miss300ByTemplate, stats.Miss350ByTemplate, stats.Miss500ByTemplate, 20),
-	}
-}
-
-func printCountRate(label string, count CountRate) {
-	fmt.Printf("  %-28s events=%d pct=%.2f%% eps=%.2f\n", label, count.Events, count.Percent, count.EPS)
-}
-
-func printHistogram(label string, hist map[string]int) {
-	order := []string{"0-50ms", "50-100ms", "100-150ms", "150-200ms", "200-300ms", "300-350ms", "350-500ms", ">500/error"}
-	fmt.Printf("  %s", label)
-	for _, bucket := range order {
-		fmt.Printf(" %s=%d", bucket, hist[bucket])
-	}
-	fmt.Println()
-}
-
-func printCustomerReport(report CustomerReport) {
-	fmt.Println()
-	fmt.Println("CUSTOMER EVENT WALL-CLOCK REPORT")
-	fmt.Printf("latency_scope=%s\n", report.LatencyScope)
-	fmt.Printf("completed_events=%d\n", report.CompletedEvents)
-	fmt.Println("event_wall_clock_sla")
-	printCountRate("score_ready_60 <=300ms", report.EventSLA["score_ready_60_of_65"]["300ms"])
-	printCountRate("score_ready_60 <=350ms", report.EventSLA["score_ready_60_of_65"]["350ms"])
-	printCountRate("score_ready_60 <=500ms", report.EventSLA["score_ready_60_of_65"]["500ms"])
-	printCountRate("full_65 <=300ms", report.EventSLA["full_65_of_65"]["300ms"])
-	printCountRate("full_65 <=350ms", report.EventSLA["full_65_of_65"]["350ms"])
-	printCountRate("full_65 <=500ms", report.EventSLA["full_65_of_65"]["500ms"])
-	fmt.Printf("avg_bundles_by_300ms=%.2f avg_bundles_by_350ms=%.2f avg_bundles_by_500ms=%.2f\n",
-		report.AvgBundlesBy300MS, report.AvgBundlesBy350MS, report.AvgBundlesBy500MS)
-	fmt.Println("event_wall_clock_latency")
-	for _, name := range []string{"score_ready_60_of_65", "full_65_of_65"} {
-		s := report.EventLatency[name].Summary
-		fmt.Printf("  %-22s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f\n",
-			name, s.N, s.P50, s.P95, s.P99, s.P999, s.Max)
-		printHistogram(name+"_histogram", report.EventLatency[name].Histogram)
-	}
-	fmt.Println("sql_only_latency_for_diagnosis")
-	for _, name := range []string{"score_ready_60_of_65", "full_65_of_65"} {
-		s := report.SQLOnlyLatency[name].Summary
-		fmt.Printf("  %-22s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f\n",
-			name, s.N, s.P50, s.P95, s.P99, s.P999, s.Max)
-		printHistogram(name+"_histogram", report.SQLOnlyLatency[name].Histogram)
-	}
-	fmt.Printf("bundle_mode_counts runtime=%d preagg=%d serving=%d total=%d by_group=%v\n",
-		report.BundleModeCounts.Runtime, report.BundleModeCounts.PreAgg, report.BundleModeCounts.Serving, report.BundleModeCounts.Total, report.BundleModeCounts.ByGroup)
-	r := report.Realism
-	fmt.Println("test_realism")
-	fmt.Printf("  generated_workload_rows=%d unique_source_events=%d unique_binding_sets=%d\n",
-		r.GeneratedWorkloadRows, r.UniqueSourceEvents, r.UniqueBindingSets)
-	fmt.Printf("  executed_unique_events=%d executed_unique_binding_sets=%d cycled=%v row_reuse_min=%d row_reuse_max=%d event_offset=%d event_stride=%d\n",
-		r.ExecutedUniqueEvents, r.ExecutedBindingSets, r.CycledWorkloadSample, r.WorkloadRowReuseMin, r.WorkloadRowReuseMax, r.EventOffset, r.EventStride)
-	fmt.Printf("  event_sampling=%s event_random_seed=%d\n", r.EventSampling, r.EventRandomSeed)
-	fmt.Printf("  cache_state=%s cache_note=%s\n", r.CacheState, r.CacheNote)
-	fmt.Printf("  event_mix=%v hot_field_mix=%v\n", r.EventMix, r.HotFieldMix)
-	if r.BindingFieldsAvailable {
-		fmt.Println("  binding_fields")
-		fields := make([]string, 0, len(r.BindingFields))
-		for field := range r.BindingFields {
-			fields = append(fields, field)
-		}
-		sort.Strings(fields)
-		for _, field := range fields {
-			s := r.BindingFields[field]
-			fmt.Printf("    %-36s distinct=%d max_repeat=%d max_value=%s\n", field, s.Distinct, s.MaxRepeat, s.MaxValue)
-		}
-	} else {
-		fmt.Println("  binding_fields=unavailable_in_workload_json")
-	}
-	fmt.Println("tail_drivers_by_bundle_event_wall_clock_miss")
-	for i, item := range report.TailDrivers {
-		fmt.Printf("  %2d %-20s n=%d event_p95=%.1f event_p99=%.1f event_p999=%.1f event_max=%.1f miss300=%d miss350=%d miss500=%d sql_p99=%.1f\n",
-			i+1, item.BundleID, item.N, item.P95, item.P99, item.P999, item.Max, item.Over300, item.Over350, item.Over500, item.SQLP99)
-	}
-}
-
 func emitResult(
 	outputPath string,
-	workload Workload,
 	stats RunStats,
 	templates []Template,
 	connections int,
@@ -2030,12 +1203,8 @@ func emitResult(
 	maxExecMS int,
 	prepareAll bool,
 	executionMode string,
-	eventSampling string,
-	eventRandomSeed int64,
 	eventOffset int,
 	eventStride int,
-	cacheState string,
-	cacheNote string,
 	startAtUnixMS int64,
 	setupTimeout time.Duration,
 	omitEvents bool,
@@ -2043,45 +1212,13 @@ func emitResult(
 	eventMS := make([]float64, 0, len(stats.EventResults))
 	score60MS := make([]float64, 0, len(stats.EventResults))
 	full65MS := make([]float64, 0, len(stats.EventResults))
-	sqlScore60MS := make([]float64, 0, len(stats.EventResults))
-	sqlFull65MS := make([]float64, 0, len(stats.EventResults))
-	bundlesBy300 := make([]float64, 0, len(stats.EventResults))
-	bundlesBy350 := make([]float64, 0, len(stats.EventResults))
-	bundlesBy500 := make([]float64, 0, len(stats.EventResults))
-	sqlBundlesBy300 := make([]float64, 0, len(stats.EventResults))
-	sqlBundlesBy350 := make([]float64, 0, len(stats.EventResults))
-	sqlBundlesBy500 := make([]float64, 0, len(stats.EventResults))
 	for _, result := range stats.EventResults {
 		eventMS = append(eventMS, result.MS)
-		if result.BundlesBy300 >= 0 {
-			bundlesBy300 = append(bundlesBy300, float64(result.BundlesBy300))
-		}
-		if result.BundlesBy350 >= 0 {
-			bundlesBy350 = append(bundlesBy350, float64(result.BundlesBy350))
-		}
-		if result.BundlesBy500 >= 0 {
-			bundlesBy500 = append(bundlesBy500, float64(result.BundlesBy500))
-		}
-		if result.SQLBundlesBy300 >= 0 {
-			sqlBundlesBy300 = append(sqlBundlesBy300, float64(result.SQLBundlesBy300))
-		}
-		if result.SQLBundlesBy350 >= 0 {
-			sqlBundlesBy350 = append(sqlBundlesBy350, float64(result.SQLBundlesBy350))
-		}
-		if result.SQLBundlesBy500 >= 0 {
-			sqlBundlesBy500 = append(sqlBundlesBy500, float64(result.SQLBundlesBy500))
-		}
 		if result.Score60MS >= 0 {
 			score60MS = append(score60MS, result.Score60MS)
 		}
 		if result.Full65MS >= 0 {
 			full65MS = append(full65MS, result.Full65MS)
-		}
-		if result.SQLScore60MS >= 0 {
-			sqlScore60MS = append(sqlScore60MS, result.SQLScore60MS)
-		}
-		if result.SQLFull65MS >= 0 {
-			sqlFull65MS = append(sqlFull65MS, result.SQLFull65MS)
 		}
 	}
 	full65EPS := 0.0
@@ -2089,19 +1226,13 @@ func emitResult(
 		full65EPS = float64(len(full65MS)) / stats.Elapsed.Seconds()
 	}
 	bundleSummaries := make(map[string]Summary, len(templates))
-	bundleEventSummaries := make(map[string]Summary, len(templates))
-	bundleEventSummariesByIdx := make(map[int]Summary, len(templates))
 	for idx, tmpl := range templates {
 		bundleSummaries[tmpl.BundleID] = summarize(stats.QueryByTemplate[idx])
-		eventSummary := summarize(stats.EventMSByTemplate[idx])
-		bundleEventSummaries[tmpl.BundleID] = eventSummary
-		bundleEventSummariesByIdx[idx] = eventSummary
 	}
 	completedEPS := 0.0
 	if stats.Elapsed.Seconds() > 0 {
 		completedEPS = float64(len(stats.EventResults)) / stats.Elapsed.Seconds()
 	}
-	customerReport := buildCustomerReport(workload, stats, score60MS, full65MS, sqlScore60MS, sqlFull65MS, bundlesBy300, bundlesBy350, bundlesBy500, bundleEventSummariesByIdx, bundleSummaries, eventsToRun, eventSampling, eventRandomSeed, eventOffset, eventStride, cacheState, cacheNote)
 	result := Result{
 		StartedAtUnix:      float64(stats.Started.UnixNano()) / 1e9,
 		ElapsedSeconds:     stats.Elapsed.Seconds(),
@@ -2121,40 +1252,21 @@ func emitResult(
 		MaxExecutionTimeMS: maxExecMS,
 		PrepareAll:         prepareAll,
 		ExecutionMode:      executionMode,
-		EventSampling:      eventSampling,
-		EventRandomSeed:    eventRandomSeed,
 		EventOffset:        eventOffset,
 		EventStride:        eventStride,
-		CacheState:         cacheState,
-		CacheNote:          cacheNote,
 		StartAtUnixMS:      startAtUnixMS,
 		SetupTimeout:       setupTimeout.String(),
-		WorkloadSelection:  workload.EventSelection,
-		WorkloadStats:      workload.WorkloadStats,
 		ReadyWorkers:       stats.ReadyWorkers,
 		SetupErrors:        stats.SetupErrors,
 		FirstQueryErrors:   stats.FirstQueryErrors,
 		Summaries: map[string]Summary{
-			"event_completion":              summarize(eventMS),
-			"score_ready_60_of_65":          summarize(score60MS),
-			"full_65_of_65":                 summarize(full65MS),
-			"sql_only_score_ready_60_of_65": summarize(sqlScore60MS),
-			"sql_only_full_65_of_65":        summarize(sqlFull65MS),
-			"query_runtime":                 summarize(stats.QueryMS),
-			"task_queue":                    summarize(stats.QueueMS),
-			"prepare_runtime":               summarize(stats.PrepareMS),
-			"db_exec":                       summarize(stats.ExecMS),
-			"result_drain":                  summarize(stats.DrainMS),
-			"bundles_by_300ms":              summarize(bundlesBy300),
-			"bundles_by_350ms":              summarize(bundlesBy350),
-			"bundles_by_500ms":              summarize(bundlesBy500),
-			"sql_only_bundles_by_300ms":     summarize(sqlBundlesBy300),
-			"sql_only_bundles_by_350ms":     summarize(sqlBundlesBy350),
-			"sql_only_bundles_by_500ms":     summarize(sqlBundlesBy500),
+			"event_completion":     summarize(eventMS),
+			"score_ready_60_of_65": summarize(score60MS),
+			"full_65_of_65":        summarize(full65MS),
+			"query_runtime":        summarize(stats.QueryMS),
+			"task_queue":           summarize(stats.QueueMS),
 		},
-		BundleSummaries:      bundleSummaries,
-		BundleEventSummaries: bundleEventSummaries,
-		CustomerReport:       customerReport,
+		BundleSummaries: bundleSummaries,
 	}
 	if !omitEvents {
 		result.EventResults = stats.EventResults
@@ -2167,15 +1279,10 @@ func emitResult(
 	if len(stats.FirstQueryErrors) > 0 {
 		fmt.Printf("first_error=%s\n", stats.FirstQueryErrors[0])
 	}
-	for _, name := range []string{"event_completion", "full_65_of_65", "score_ready_60_of_65", "sql_only_full_65_of_65", "sql_only_score_ready_60_of_65", "query_runtime", "task_queue", "prepare_runtime", "db_exec", "result_drain"} {
+	for _, name := range []string{"event_completion", "full_65_of_65", "score_ready_60_of_65", "query_runtime", "task_queue"} {
 		s := result.Summaries[name]
-		fmt.Printf("%-22s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f >300=%d >350=%d >500=%d\n",
-			name, s.N, s.P50, s.P95, s.P99, s.P999, s.Max, s.Over300, s.Over350, s.Over500)
-	}
-	for _, name := range []string{"bundles_by_300ms", "bundles_by_350ms", "bundles_by_500ms"} {
-		s := result.Summaries[name]
-		fmt.Printf("%-22s n=%d avg=%.2f p50=%.1f p95=%.1f p99=%.1f max=%.1f\n",
-			name, s.N, s.Avg, s.P50, s.P95, s.P99, s.Max)
+		fmt.Printf("%-22s n=%d p50=%.1f p95=%.1f p99=%.1f max=%.1f >350=%d >500=%d\n",
+			name, s.N, s.P50, s.P95, s.P99, s.Max, s.Over350, s.Over500)
 	}
 	type bundleRank struct {
 		ID      string
@@ -2202,10 +1309,9 @@ func emitResult(
 	}
 	for i := 0; i < limit; i++ {
 		s := ranked[i].Summary
-		fmt.Printf("%2d %-20s n=%d p50=%.1f p95=%.1f p99=%.1f p999=%.1f max=%.1f >350=%d >500=%d\n",
-			i+1, ranked[i].ID, s.N, s.P50, s.P95, s.P99, s.P999, s.Max, s.Over350, s.Over500)
+		fmt.Printf("%2d %-20s n=%d p50=%.1f p95=%.1f p99=%.1f max=%.1f >350=%d >500=%d\n",
+			i+1, ranked[i].ID, s.N, s.P50, s.P95, s.P99, s.Max, s.Over350, s.Over500)
 	}
-	printCustomerReport(customerReport)
 
 	data, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {
@@ -2228,31 +1334,27 @@ func ensureResultPath(path string) error {
 
 func main() {
 	var (
-		workloadPath    = flag.String("workload", "results/go_workload_1000.json", "workload JSON generated by generate_go_workload.py")
-		dbConfigPath    = flag.String("db-config", "../.db_config.json", "database config JSON")
-		outputPath      = flag.String("output", "", "result JSON path")
-		connections     = flag.Int("connections", 1300, "number of dedicated DB connections/workers")
-		eventsLimit     = flag.Int("events", 0, "events to run; 0 means all events in workload")
-		connectTimeout  = flag.Duration("connect-timeout", 10*time.Second, "mysql connect timeout")
-		readTimeout     = flag.Duration("read-timeout", 5*time.Second, "mysql read timeout")
-		writeTimeout    = flag.Duration("write-timeout", 5*time.Second, "mysql write timeout")
-		setupTimeout    = flag.Duration("setup-timeout", 60*time.Second, "maximum time to wait for workers to connect/configure/prepare")
-		queryTimeout    = flag.Duration("query-timeout", 0, "per-query context timeout; 0 disables")
-		maxExecMS       = flag.Int("max-execution-time-ms", 0, "SET SESSION max_execution_time; 0 disables")
-		isolation       = flag.String("isolation-read-engines", "tikv,tidb", "SET SESSION tidb_isolation_read_engines")
-		prepareAll      = flag.Bool("prepare-all", false, "prepare every bundle statement on every connection before timing")
-		executionMode   = flag.String("execution-mode", "event-fanout", "execution mode: worker-pool, event-fanout, or conn-fanout")
-		startAtUnixMS   = flag.Int64("start-at-unix-ms", 0, "wait until this Unix epoch millisecond after workers are ready before submitting tasks")
-		targetEventEPS  = flag.Float64("target-event-eps", 0, "steady-state event submission rate; requires --duration")
-		duration        = flag.Duration("duration", 0, "steady-state submission duration; requires --target-event-eps")
-		maxPending      = flag.Int("max-pending-events", 0, "cap submitted-but-not-completed events in steady mode; 0 disables")
-		omitEvents      = flag.Bool("omit-event-results", false, "omit per-event results from JSON")
-		eventSampling   = flag.String("event-sampling", "stride", "workload event sampling mode: stride or random")
-		eventRandomSeed = flag.Int64("event-random-seed", 20260625, "seed for --event-sampling=random")
-		eventOffset     = flag.Int("event-offset", 0, "first workload event index to use; fleet runner sets this per process")
-		eventStride     = flag.Int("event-stride", 1, "stride across workload events; fleet runner sets this to worker count")
-		cacheState      = flag.String("cache-state", "unknown", "cache state label for customer report: warm, cold, restarted, unknown")
-		cacheNote       = flag.String("cache-note", "", "free-form cache-state note stored in result JSON")
+		workloadPath   = flag.String("workload", "results/go_workload_1000.json", "workload JSON generated by generate_go_workload.py")
+		dbConfigPath   = flag.String("db-config", "../.db_config.json", "database config JSON")
+		outputPath     = flag.String("output", "", "result JSON path")
+		connections    = flag.Int("connections", 1300, "number of dedicated DB connections/workers")
+		eventsLimit    = flag.Int("events", 0, "events to run; 0 means all events in workload")
+		connectTimeout = flag.Duration("connect-timeout", 10*time.Second, "mysql connect timeout")
+		readTimeout    = flag.Duration("read-timeout", 5*time.Second, "mysql read timeout")
+		writeTimeout   = flag.Duration("write-timeout", 5*time.Second, "mysql write timeout")
+		setupTimeout   = flag.Duration("setup-timeout", 60*time.Second, "maximum time to wait for workers to connect/configure/prepare")
+		queryTimeout   = flag.Duration("query-timeout", 0, "per-query context timeout; 0 disables")
+		maxExecMS      = flag.Int("max-execution-time-ms", 0, "SET SESSION max_execution_time; 0 disables")
+		isolation      = flag.String("isolation-read-engines", "tikv,tidb", "SET SESSION tidb_isolation_read_engines")
+		prepareAll     = flag.Bool("prepare-all", false, "prepare every bundle statement on every connection before timing")
+		executionMode  = flag.String("execution-mode", "event-fanout", "execution mode: worker-pool, event-fanout, or conn-fanout")
+		eventOffset    = flag.Int("event-offset", 0, "offset into workload events for this process")
+		eventStride    = flag.Int("event-stride", 1, "stride through workload events for this process")
+		startAtUnixMS  = flag.Int64("start-at-unix-ms", 0, "wait until this Unix epoch millisecond after workers are ready before submitting tasks")
+		targetEventEPS = flag.Float64("target-event-eps", 0, "steady-state event submission rate; requires --duration")
+		duration       = flag.Duration("duration", 0, "steady-state submission duration; requires --target-event-eps")
+		maxPending     = flag.Int("max-pending-events", 0, "cap submitted-but-not-completed events in steady mode; 0 disables")
+		omitEvents     = flag.Bool("omit-event-results", true, "omit per-event results from JSON")
 	)
 	flag.Parse()
 
@@ -2296,35 +1398,23 @@ func main() {
 		templateIdx[tmpl.BundleID] = idx
 	}
 	totalTasks := eventsToRun * len(workload.Templates)
-	if len(workload.Events) == 0 {
-		fmt.Fprintln(os.Stderr, "workload has no events")
-		os.Exit(1)
-	}
-	if *eventStride <= 0 {
-		fmt.Fprintln(os.Stderr, "--event-stride must be > 0")
-		os.Exit(1)
-	}
-	if *eventSampling != "stride" && *eventSampling != "random" {
-		fmt.Fprintf(os.Stderr, "unknown --event-sampling %q; expected stride or random\n", *eventSampling)
-		os.Exit(1)
-	}
 	if *executionMode != "worker-pool" && *executionMode != "event-fanout" && *executionMode != "conn-fanout" {
 		fmt.Fprintf(os.Stderr, "unknown --execution-mode %q; expected worker-pool, event-fanout, or conn-fanout\n", *executionMode)
 		os.Exit(1)
 	}
+	if *executionMode == "event-fanout" && *maxPending == 0 {
+		fmt.Fprintln(os.Stderr, "WARNING: execution-mode=event-fanout with --max-pending-events=0 has NO backpressure: "+
+			"in-flight event goroutines pile up unbounded and contend for the shared connection pool, so wall-clock "+
+			"latency can reflect client-side connection starvation rather than DB performance. For customer runs prefer "+
+			"--execution-mode conn-fanout (bounded slot channel separates connection-wait from query time), or set a "+
+			"non-zero --max-pending-events (e.g. ~= --connections).")
+	}
 	fmt.Printf("Go loadgen: events=%d bundles/event=%d tasks=%d connections=%d prepare_all=%v steady=%v mode=%s\n",
 		eventsToRun, len(workload.Templates), totalTasks, *connections, *prepareAll, steadyMode, *executionMode)
-	fmt.Printf("Workload selection: rows=%d sampling=%s random_seed=%d event_offset=%d event_stride=%d cache_state=%s omit_event_results=%v\n",
-		len(workload.Events), *eventSampling, *eventRandomSeed, *eventOffset, *eventStride, *cacheState, *omitEvents)
 	fmt.Printf("DB: %s:%d db=%s user=%s read_timeout=%s query_timeout=%s max_exec_ms=%d\n",
 		cfg.Host, cfg.Port, cfg.Database, cfg.User, readTimeout.String(), queryTimeout.String(), *maxExecMS)
 
-	tlsConfigName, err := registerTLSConfig(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "register tls: %v\n", err)
-		os.Exit(1)
-	}
-	db, err := sql.Open("mysql", mysqlDSN(cfg, *connectTimeout, *readTimeout, *writeTimeout, *isolation, *maxExecMS, tlsConfigName))
+	db, err := sql.Open("mysql", mysqlDSN(cfg, *connectTimeout, *readTimeout, *writeTimeout, *isolation, *maxExecMS))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open db: %v\n", err)
 		os.Exit(1)
@@ -2343,6 +1433,8 @@ func main() {
 			workload,
 			templateIdx,
 			eventsToRun,
+			*eventOffset,
+			*eventStride,
 			*connections,
 			*setupTimeout,
 			*prepareAll,
@@ -2352,14 +1444,9 @@ func main() {
 			*queryTimeout,
 			*isolation,
 			*maxExecMS,
-			*eventSampling,
-			*eventRandomSeed,
-			*eventOffset,
-			*eventStride,
 		)
 		emitResult(
 			*outputPath,
-			workload,
 			stats,
 			workload.Templates,
 			*connections,
@@ -2373,12 +1460,8 @@ func main() {
 			*maxExecMS,
 			*prepareAll,
 			*executionMode,
-			*eventSampling,
-			*eventRandomSeed,
 			*eventOffset,
 			*eventStride,
-			*cacheState,
-			*cacheNote,
 			*startAtUnixMS,
 			*setupTimeout,
 			*omitEvents,
@@ -2392,6 +1475,8 @@ func main() {
 			workload,
 			templateIdx,
 			eventsToRun,
+			*eventOffset,
+			*eventStride,
 			*connections,
 			*setupTimeout,
 			*prepareAll,
@@ -2399,14 +1484,9 @@ func main() {
 			*targetEventEPS,
 			*maxPending,
 			*queryTimeout,
-			*eventSampling,
-			*eventRandomSeed,
-			*eventOffset,
-			*eventStride,
 		)
 		emitResult(
 			*outputPath,
-			workload,
 			stats,
 			workload.Templates,
 			*connections,
@@ -2420,12 +1500,8 @@ func main() {
 			*maxExecMS,
 			*prepareAll,
 			*executionMode,
-			*eventSampling,
-			*eventRandomSeed,
 			*eventOffset,
 			*eventStride,
-			*cacheState,
-			*cacheNote,
 			*startAtUnixMS,
 			*setupTimeout,
 			*omitEvents,
@@ -2502,25 +1578,55 @@ readyLoop:
 	submitEvent := func(eventIdx int) {
 		eventStart := time.Now()
 		eventStates[eventIdx].StartNs = eventStart.UnixNano()
-		eventStates[eventIdx].Remaining = int64(len(workload.Templates))
-		sourceIdx := selectedWorkloadIndex(eventIdx, len(workload.Events), *eventOffset, *eventStride, *eventSampling, *eventRandomSeed)
-		sourceEvent := workload.Events[sourceIdx]
+		sourceEvent := workloadEventAt(workload, eventIdx, *eventOffset, *eventStride)
+		// Count the bundles that map to a known template BEFORE enqueuing, and
+		// set Remaining to that exact enqueued-task count. Using len(Templates)
+		// would leave Remaining > 0 forever (the event never emits, hanging the
+		// run) whenever a bundle references an unknown bundle_id. Unknown ids are
+		// recorded as errors so they are surfaced rather than silently dropped.
+		enqueued := 0
+		unknown := int64(0)
+		for _, bundle := range sourceEvent.Bundles {
+			if _, ok := templateIdx[bundle.BundleID]; ok {
+				enqueued++
+			} else {
+				unknown++
+			}
+		}
+		if unknown > 0 {
+			atomic.AddInt64(&eventStates[eventIdx].Errors, unknown)
+		}
+		atomic.StoreInt64(&eventStates[eventIdx].Remaining, int64(enqueued))
+		if enqueued == 0 {
+			// Nothing to run for this event; emit a completed (degraded) result
+			// directly so the collector does not block waiting on it forever.
+			completedNs := time.Now().UnixNano()
+			startNs := eventStates[eventIdx].StartNs
+			eventDone <- EventResult{
+				EventIdx:     eventIdx,
+				MS:           float64(completedNs-startNs) / 1e6,
+				Score60MS:    -1,
+				Full65MS:     -1,
+				SqlScore60MS: -1,
+				SqlFull65MS:  -1,
+				Successes:    0,
+				Errors:       unknown,
+				Skipped:      0,
+				CompletedAt:  completedNs,
+			}
+			return
+		}
 		for _, bundle := range sourceEvent.Bundles {
 			idx, ok := templateIdx[bundle.BundleID]
 			if !ok {
 				continue
 			}
 			tasks <- Task{
-				EventIdx:       eventIdx,
-				WorkloadIdx:    sourceIdx,
-				SourceEvent:    sourceEventKey(sourceEvent, sourceIdx),
-				BindingSetHash: bindingSetHash(sourceEvent),
-				Kind:           sourceEvent.Kind,
-				HotField:       valueKey(sourceEvent.HotField),
-				TemplateIdx:    idx,
-				Params:         bundle.Params,
-				Skip:           bundle.Skip,
-				QueuedAt:       time.Now(),
+				EventIdx:    eventIdx,
+				TemplateIdx: idx,
+				Params:      bundle.Params,
+				Skip:        bundle.Skip,
+				QueuedAt:    time.Now(),
 			}
 		}
 	}
@@ -2571,36 +1677,14 @@ readyLoop:
 
 	queryMS := make([]float64, 0, totalTasks)
 	queueMS := make([]float64, 0, totalTasks)
-	prepareMS := make([]float64, 0, totalTasks)
-	execMS := make([]float64, 0, totalTasks)
-	drainMS := make([]float64, 0, totalTasks)
 	queryByTemplate := make(map[int][]float64, len(workload.Templates))
-	eventMSByTemplate := make(map[int][]float64, len(workload.Templates))
-	miss300ByTemplate := make(map[int]int, len(workload.Templates))
-	miss350ByTemplate := make(map[int]int, len(workload.Templates))
-	miss500ByTemplate := make(map[int]int, len(workload.Templates))
 	totalErrors := int64(0)
 	firstQueryErrors := make([]string, 0)
 	for wm := range metricsCh {
 		queryMS = append(queryMS, wm.QueryMS...)
 		queueMS = append(queueMS, wm.QueueMS...)
-		prepareMS = append(prepareMS, wm.PrepareMS...)
-		execMS = append(execMS, wm.ExecMS...)
-		drainMS = append(drainMS, wm.DrainMS...)
 		for idx, vals := range wm.QueryByTemplate {
 			queryByTemplate[idx] = append(queryByTemplate[idx], vals...)
-		}
-		for idx, vals := range wm.EventMSByTemplate {
-			eventMSByTemplate[idx] = append(eventMSByTemplate[idx], vals...)
-		}
-		for idx, count := range wm.Miss300ByTemplate {
-			miss300ByTemplate[idx] += count
-		}
-		for idx, count := range wm.Miss350ByTemplate {
-			miss350ByTemplate[idx] += count
-		}
-		for idx, count := range wm.Miss500ByTemplate {
-			miss500ByTemplate[idx] += count
 		}
 		totalErrors += wm.Errors
 		for _, msg := range wm.FirstErrors {
@@ -2611,27 +1695,19 @@ readyLoop:
 	}
 
 	stats := RunStats{
-		Started:           started,
-		Elapsed:           elapsed,
-		EventResults:      eventResults,
-		QueryMS:           queryMS,
-		QueueMS:           queueMS,
-		PrepareMS:         prepareMS,
-		ExecMS:            execMS,
-		DrainMS:           drainMS,
-		QueryByTemplate:   queryByTemplate,
-		EventMSByTemplate: eventMSByTemplate,
-		Miss300ByTemplate: miss300ByTemplate,
-		Miss350ByTemplate: miss350ByTemplate,
-		Miss500ByTemplate: miss500ByTemplate,
-		TotalErrors:       totalErrors,
-		FirstQueryErrors:  firstQueryErrors,
-		ReadyWorkers:      readyWorkers,
-		SetupErrors:       setupErrors,
+		Started:          started,
+		Elapsed:          elapsed,
+		EventResults:     eventResults,
+		QueryMS:          queryMS,
+		QueueMS:          queueMS,
+		QueryByTemplate:  queryByTemplate,
+		TotalErrors:      totalErrors,
+		FirstQueryErrors: firstQueryErrors,
+		ReadyWorkers:     readyWorkers,
+		SetupErrors:      setupErrors,
 	}
 	emitResult(
 		*outputPath,
-		workload,
 		stats,
 		workload.Templates,
 		*connections,
@@ -2645,12 +1721,8 @@ readyLoop:
 		*maxExecMS,
 		*prepareAll,
 		*executionMode,
-		*eventSampling,
-		*eventRandomSeed,
 		*eventOffset,
 		*eventStride,
-		*cacheState,
-		*cacheNote,
 		*startAtUnixMS,
 		*setupTimeout,
 		*omitEvents,

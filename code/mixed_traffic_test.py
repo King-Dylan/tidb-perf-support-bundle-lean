@@ -40,7 +40,6 @@ from demo import (
     cluster_group_a_templates,
     cluster_group_b_templates,
     cluster_group_c_templates,
-    group_b_runtime_predicate_repetitions,
 )
 from lib.db_config import get_db_config
 from exact_serving import (
@@ -329,6 +328,29 @@ def top_value(cur, table: str, column: str) -> tuple[str, int]:
     return str(row[0]), int(row[1])
 
 
+def top_values(cur, table: str, column: str, k: int) -> list[str]:
+    """Return up to the K most frequent non-empty values for a column.
+
+    Used to exclude near-hot values (not just the single top value) from the
+    "normal" pool, so a 2nd/3rd most-frequent value does not leak in as normal.
+    """
+    if k <= 0:
+        return []
+    cur.execute(
+        f"""
+        SELECT {column}
+        FROM {table}
+        WHERE {column} IS NOT NULL
+          AND {column} <> ''
+        GROUP BY {column}
+        ORDER BY COUNT(*) DESC
+        LIMIT %s
+        """,
+        (k,),
+    )
+    return [str(row[0]) for row in cur.fetchall()]
+
+
 def fetch_events_for_hot_value(cur, alias: str, column: str, value: str, field_name: str, hot_count: int, limit: int) -> list[dict[str, Any]]:
     candidate_limit = max(limit * 200, 1000)
     if alias == "p":
@@ -440,102 +462,76 @@ def sample_normal_events(
     max_payment_rows: int,
     max_device_rows: int,
     validate_counts: bool,
-    candidate_multiplier: float = 25.0,
 ) -> list[dict[str, Any]]:
-    p_clauses = []
-    d_clauses = []
-    p_params: list[Any] = []
-    d_params: list[Any] = []
+    # Build hot-value exclusion clauses so normal events never reuse a hot key.
+    # excluded_hot_values maps a field name to either a single value (str) or a
+    # list of near-hot values (the top-K), so 2nd/3rd most-frequent values are
+    # also kept out of "normal" when count validation is disabled.
+    clauses = []
+    params: list[Any] = []
     for _, alias, column, field_name in FILTER_FIELDS:
         hot = excluded_hot_values.get(field_name)
-        if hot:
-            if alias == "p":
-                p_clauses.append(f"AND {column} <> %s")
-                p_params.append(hot)
-            else:
-                d_clauses.append(f"AND d.{column} <> %s")
-                d_params.append(hot)
-    multiplier = 60.0 if validate_counts else max(candidate_multiplier, 1.0)
-    candidate_limit = max(int(limit * multiplier), 10000)
+        if not hot:
+            continue
+        hot_list = [hot] if isinstance(hot, str) else [v for v in hot if v]
+        if not hot_list:
+            continue
+        prefix = "p" if alias == "p" else "d"
+        placeholders = ", ".join(["%s"] * len(hot_list))
+        clauses.append(f"AND {prefix}.{column} NOT IN ({placeholders})")
+        params.extend(hot_list)
+    # Single indexed JOIN on parsed_interaction_id = interaction_id returns only
+    # COMPLETE events (all 8 fields present), so there is no payment->device match
+    # waste (the old two-query sampler only matched ~23%). interaction_id is indexed
+    # on deviceprofile_fact, so this is an index join. We randomize the candidate
+    # selection with ORDER BY RAND() so the "normal" pool is an actual random sample
+    # of the join rather than one arbitrary leading physical slice (a bare LIMIT with
+    # no ORDER BY draws whatever the plan emits first, which biases the key
+    # distribution). Over-fetch a large margin to cover de-duplication of repeated
+    # binding combos at scale.
+    candidate_limit = max(limit * 4, 10000)
     cur.execute(
         f"""
         SELECT
-            invoice_number,
-            event_date,
-            merchant_account_number,
-            card_holder_number_sha512,
-            check_bank_routing_number,
-            check_bank_account_number_sha512,
-            parsed_interaction_id
-        FROM pmt_txn_fact
-        WHERE merchant_account_number IS NOT NULL
-          AND card_holder_number_sha512 IS NOT NULL
-          AND check_bank_routing_number IS NOT NULL
-          AND check_bank_account_number_sha512 IS NOT NULL
-          AND parsed_interaction_id IS NOT NULL
-          {' '.join(p_clauses)}
-        ORDER BY event_date DESC
+            p.invoice_number,
+            p.event_date,
+            p.merchant_account_number,
+            p.card_holder_number_sha512,
+            p.check_bank_routing_number,
+            p.check_bank_account_number_sha512,
+            d.exact_id,
+            d.smart_id,
+            d.input_ip,
+            d.true_ip,
+            p.parsed_interaction_id
+        FROM pmt_txn_fact p
+        JOIN deviceprofile_fact d
+          ON p.parsed_interaction_id = d.interaction_id
+        WHERE p.merchant_account_number IS NOT NULL
+          AND p.card_holder_number_sha512 IS NOT NULL
+          AND p.check_bank_routing_number IS NOT NULL
+          AND p.check_bank_account_number_sha512 IS NOT NULL
+          AND p.parsed_interaction_id IS NOT NULL
+          AND d.exact_id IS NOT NULL
+          AND d.smart_id IS NOT NULL
+          AND d.input_ip IS NOT NULL
+          AND d.true_ip IS NOT NULL
+          {' '.join(clauses)}
+        ORDER BY RAND()
         LIMIT %s
         """,
-        tuple(p_params + [candidate_limit]),
+        tuple(params + [candidate_limit]),
     )
-    payment_rows = list(cur.fetchall())
-    random.shuffle(payment_rows)
-
-    rows = []
-    batch_size = 500
-    for i in range(0, len(payment_rows), batch_size):
-        batch = payment_rows[i : i + batch_size]
-        interaction_ids = [row[6] for row in batch if row[6]]
-        if not interaction_ids:
-            continue
-        placeholders = ", ".join(["%s"] * len(interaction_ids))
-        cur.execute(
-            f"""
-            SELECT
-                d.interaction_id,
-                d.exact_id,
-                d.smart_id,
-                d.input_ip,
-                d.true_ip
-            FROM deviceprofile_fact d
-            WHERE d.interaction_id IN ({placeholders})
-              AND d.exact_id IS NOT NULL
-              AND d.smart_id IS NOT NULL
-              AND d.input_ip IS NOT NULL
-              AND d.true_ip IS NOT NULL
-              {' '.join(d_clauses)}
-            """,
-            tuple(interaction_ids + d_params),
-        )
-        device_by_interaction = {row[0]: row for row in cur.fetchall()}
-        for p_row in batch:
-            d_row = device_by_interaction.get(p_row[6])
-            if not d_row:
-                continue
-            rows.append(
-                (
-                    p_row[0],
-                    p_row[1],
-                    p_row[2],
-                    p_row[3],
-                    p_row[4],
-                    p_row[5],
-                    d_row[1],
-                    d_row[2],
-                    d_row[3],
-                    d_row[4],
-                    p_row[6],
-                )
-            )
-            if len(rows) >= max(limit * (30 if validate_counts else 2), 300):
-                break
-        if len(rows) >= max(limit * (30 if validate_counts else 2), 300):
-            break
-
+    rows = list(cur.fetchall())
     random.shuffle(rows)
+
     events: list[dict[str, Any]] = []
+    seen: set = set()
     for row in rows:
+        key = row[2:10]  # the 8 binding fields
+        if key in seen:
+            continue
+        seen.add(key)
         event = make_event(row, kind="normal")
         if not validate_counts:
             events.append(event)
@@ -549,27 +545,49 @@ def sample_normal_events(
     return events
 
 
+
+# Fields that must NOT be hot-injected: per the 6-hot-field / 2-excluded-SHA512
+# design these high-cardinality SHA512 columns stay unique "exactly like
+# production" (their top value occurs only a handful of times, so it is not hot).
+NO_HOT_FIELDS_DEFAULT = (
+    "card_holder_number_sha512",
+    "check_bank_account_number_sha512",
+)
+
+
 def sample_mixed_events(
     normal_count: int,
     hot_events_per_field: int,
     max_payment_rows: int,
     max_device_rows: int,
     validate_normal_counts: bool,
-    normal_candidate_multiplier: float = 25.0,
+    no_hot_fields: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    no_hot_fields = set(no_hot_fields) if no_hot_fields is not None else set(NO_HOT_FIELDS_DEFAULT)
+    # When count validation is off, exclude the top-K near-hot values (not just the
+    # single top value) per hot field so 2nd/3rd most-frequent values do not leak
+    # into "normal". With validation on, per-event counts already filter near-hot
+    # values, so the single top value is enough.
+    exclude_top_k = 1 if validate_normal_counts else 3
     cfg = get_db_config(save_msg="mixed traffic event sampler")
     conn = pymysql.connect(**cfg)
     conn.autocommit(True)
     hot_events: list[dict[str, Any]] = []
-    excluded_hot_values: dict[str, str] = {}
-    profile: dict[str, Any] = {"hot_fields": {}}
+    excluded_hot_values: dict[str, Any] = {}
+    profile: dict[str, Any] = {"hot_fields": {}, "no_hot_fields": sorted(no_hot_fields)}
     try:
         with conn.cursor() as cur:
             configure_read_session(cur)
             for table_name, alias, column, field_name in FILTER_FIELDS:
+                if field_name in no_hot_fields:
+                    # Do not inject hot keys on this field; it stays unique like prod.
+                    continue
                 table = "pmt_txn_fact" if alias == "p" else "deviceprofile_fact"
                 value, count = top_value(cur, table, column)
-                excluded_hot_values[field_name] = value
+                if exclude_top_k > 1:
+                    excluded_hot_values[field_name] = top_values(cur, table, column, exclude_top_k)
+                else:
+                    excluded_hot_values[field_name] = value
                 profile["hot_fields"][field_name] = {"table": table_name, "value": value, "count": count}
                 hot_events.extend(fetch_events_for_hot_value(cur, alias, column, value, field_name, count, hot_events_per_field))
 
@@ -580,7 +598,6 @@ def sample_mixed_events(
                 max_payment_rows=max_payment_rows,
                 max_device_rows=max_device_rows,
                 validate_counts=validate_normal_counts,
-                candidate_multiplier=normal_candidate_multiplier,
             )
     finally:
         conn.close()
@@ -655,10 +672,7 @@ def bundle_params(
     if bundle.bundle_id in serving_bundles:
         return serving_params(bundle, reference_time, bindings, serving_as_of_grain)
     if bundle.bundle_id not in preagg_bundles:
-        params = tuple(bindings.get(name) for name in bundle.param_names)
-        if bundle.bundle_id.startswith("group_b_bundle_"):
-            return params * group_b_runtime_predicate_repetitions(bundle)
-        return params
+        return tuple(bindings.get(name) for name in bundle.param_names)
 
     key_values = tuple(
         None if bindings.get(k) is None else str(bindings.get(k))
@@ -1224,12 +1238,16 @@ def reader_thread(
         now = time.monotonic()
         if now >= next_fire:
             prefer_hot = random.random() < hot_event_pct
+            event_source_queue = None
             if unique_events_required:
-                event = pop_unique(hot_queue if prefer_hot else normal_queue)
+                event_source_queue = hot_queue if prefer_hot else normal_queue
+                event = pop_unique(event_source_queue)
                 if event is None:
                     reader_stats["fallback_events"] = int(reader_stats.get("fallback_events", 0)) + 1
-                    event = pop_unique(normal_queue if prefer_hot else hot_queue)
+                    event_source_queue = normal_queue if prefer_hot else hot_queue
+                    event = pop_unique(event_source_queue)
                 if event is None:
+                    event_source_queue = None
                     reader_stats["event_sample_exhausted"] = True
                     stop_evt.set()
                     break
@@ -1238,6 +1256,13 @@ def reader_thread(
 
             if not event_semaphore.acquire(timeout=1.0):
                 reader_stats["backpressure_skips"] = int(reader_stats.get("backpressure_skips", 0)) + 1
+                # Backpressure timeout: the event was already popped from its source
+                # queue above. In --unique-events-required mode each event is unique
+                # and finite, so dropping it would permanently consume a sample.
+                # Push it back onto the exact queue it came from (which may be the
+                # fallback queue) so it is retried later instead of being lost.
+                if unique_events_required and event_source_queue is not None:
+                    event_source_queue.append(event)
                 next_fire += interval
                 continue
 
@@ -1455,10 +1480,18 @@ def print_summary(label: str, rows: list[dict[str, Any]]) -> None:
     )
 
 
-def bundle_coverage_summary(rows: list[dict[str, Any]], bundle_count: int, count_key: str = "bundle_counts_by_cutoff") -> dict[str, Any]:
+def bundle_coverage_summary(rows: list[dict[str, Any]], bundle_count: int, count_key: str = "bundle_counts_by_cutoff", score_ready_bundles: int = 0) -> dict[str, Any]:
     cutoffs = [50, 100, 150, 200, 350, 500]
+    # Score-ready threshold: the number of bundles that must complete for an event
+    # to be considered "ready". When --score-ready-bundles is configured (>0) use it
+    # directly; otherwise fall back to the historical 60/65 ratio scaled to the
+    # actual bundle_count rather than a hardcoded 60.
+    if score_ready_bundles > 0:
+        score_ready_threshold = min(score_ready_bundles, bundle_count)
+    else:
+        score_ready_threshold = max(1, round(bundle_count * 60 / 65)) if bundle_count else 0
     if not rows:
-        return {"events": 0, "bundle_count": bundle_count}
+        return {"events": 0, "bundle_count": bundle_count, "score_ready_threshold": score_ready_threshold}
 
     counts_by_cutoff: dict[int, list[int]] = {cutoff: [] for cutoff in cutoffs}
     for row in rows:
@@ -1470,7 +1503,7 @@ def bundle_coverage_summary(rows: list[dict[str, Any]], bundle_count: int, count
         str(cutoff): {
             "avg": statistics.mean(vals),
             "median": percentile([float(v) for v in vals], 50),
-            "events_ge_60": sum(1 for v in vals if v >= 60),
+            "events_ge_60": sum(1 for v in vals if v >= score_ready_threshold),
             "events_65": sum(1 for v in vals if v >= bundle_count),
         }
         for cutoff, vals in counts_by_cutoff.items()
@@ -1516,6 +1549,7 @@ def bundle_coverage_summary(rows: list[dict[str, Any]], bundle_count: int, count
     return {
         "events": len(rows),
         "bundle_count": bundle_count,
+        "score_ready_threshold": score_ready_threshold,
         "count_key": count_key,
         "by_cutoff": by_cutoff,
         "histogram": histogram,
@@ -1555,6 +1589,7 @@ def fanout_capacity_summary(
 def print_bundle_coverage(summary: dict[str, Any]) -> None:
     events = int(summary.get("events", 0))
     bundle_count = int(summary.get("bundle_count", 65))
+    score_ready_threshold = int(summary.get("score_ready_threshold", 60))
     if events <= 0:
         print("Bundle coverage: no events")
         return
@@ -1565,7 +1600,7 @@ def print_bundle_coverage(summary: dict[str, Any]) -> None:
     for cutoff in (350, 500):
         row = by_cutoff[str(cutoff)]
         print(
-            f"  >=60/{bundle_count} by {cutoff}ms: {row['events_ge_60']}/{events} "
+            f"  >={score_ready_threshold}/{bundle_count} by {cutoff}ms: {row['events_ge_60']}/{events} "
             f"({row['events_ge_60'] / events:.1%})"
         )
         print(
@@ -1617,13 +1652,24 @@ def main() -> None:
     ap.add_argument("--duration", type=int, default=300)
     ap.add_argument("--warmup", type=int, default=30)
     ap.add_argument("--read-rate", type=float, default=3.0)
-    ap.add_argument("--hot-event-pct", type=float, default=0.10)
+    ap.add_argument("--hot-event-pct", type=float, default=0.07)
     ap.add_argument("--normal-events", type=int, default=80)
     ap.add_argument("--hot-events-per-field", type=int, default=1)
+    ap.add_argument(
+        "--no-hot-field",
+        action="append",
+        default=None,
+        help=(
+            "Field name that must NOT be hot-injected (stays unique like production). "
+            "Repeatable. Defaults to the two SHA512 fields "
+            "(card_holder_number_sha512, check_bank_account_number_sha512) per the "
+            "6-hot-field design. Pass --no-hot-field with no value handling via "
+            "explicit names to override."
+        ),
+    )
     ap.add_argument("--fast-normal-sampling", action="store_true", help="Sample normal events by excluding top hot values, without per-event count validation.")
     ap.add_argument("--max-normal-payment-rows", type=int, default=10000)
     ap.add_argument("--max-normal-device-rows", type=int, default=10000)
-    ap.add_argument("--normal-candidate-multiplier", type=float, default=25.0, help="Candidate payment rows to inspect per requested normal event when --fast-normal-sampling is used.")
     ap.add_argument("--pool-size", type=int, default=300)
     ap.add_argument("--write-pool-size", type=int, default=25)
     ap.add_argument("--event-workers", type=int, default=0, help="Bound concurrent event executions. 0 chooses a rate-based default.")
@@ -1659,11 +1705,46 @@ def main() -> None:
         f"hot_event_pct={args.hot_event_pct:.2%}"
     )
 
+    known_field_names = {field_name for _, _, _, field_name in FILTER_FIELDS}
+    if args.no_hot_field is None:
+        no_hot_fields = set(NO_HOT_FIELDS_DEFAULT)
+    else:
+        no_hot_fields = set(args.no_hot_field)
+    unknown_no_hot = sorted(no_hot_fields - known_field_names)
+    if unknown_no_hot:
+        raise ValueError(
+            f"Unknown --no-hot-field name(s): {', '.join(unknown_no_hot)}. "
+            f"Valid fields: {', '.join(sorted(known_field_names))}"
+        )
+
+    events_replayed = False
     if args.reuse_events_json:
         reused = json.loads((ROOT / args.reuse_events_json).read_text(encoding="utf-8"))
-        normal_events = reused.get("sampled_normal_events", [])[: args.normal_events]
+        reused_normal = reused.get("sampled_normal_events", [])
         hot_events = reused.get("sampled_hot_events", [])
         profile = reused.get("profile", {"hot_fields": {}})
+        # Do NOT silently slice the reused pool down to the --normal-events default.
+        # Use the FULL reused pool by default; only truncate when the operator
+        # explicitly passes a smaller --normal-events, and say so loudly.
+        explicit_normal = any(
+            a == "--normal-events" or a.startswith("--normal-events=")
+            for a in sys.argv[1:]
+        )
+        if explicit_normal and args.normal_events < len(reused_normal):
+            print(
+                f"NOTICE: truncating reused normal pool from {len(reused_normal)} to "
+                f"{args.normal_events} because --normal-events was set explicitly. "
+                "This replays a smaller unique set; omit --normal-events to use the full pool."
+            )
+            normal_events = reused_normal[: args.normal_events]
+        else:
+            if not explicit_normal and len(reused_normal) > args.normal_events:
+                print(
+                    f"Reusing the FULL reused normal pool ({len(reused_normal)} events); "
+                    f"ignoring the --normal-events default of {args.normal_events}. "
+                    "Pass --normal-events explicitly to truncate."
+                )
+            normal_events = list(reused_normal)
         print(f"Reusing sampled events from {args.reuse_events_json}")
     else:
         normal_events, hot_events, profile = sample_mixed_events(
@@ -1672,9 +1753,24 @@ def main() -> None:
             max_payment_rows=args.max_normal_payment_rows,
             max_device_rows=args.max_normal_device_rows,
             validate_normal_counts=not args.fast_normal_sampling,
-            normal_candidate_multiplier=args.normal_candidate_multiplier,
+            no_hot_fields=no_hot_fields,
         )
     print(f"Sampled {len(normal_events)} normal events and {len(hot_events)} hot-key events")
+    # When unique events are not required, the reader/burst path rotates and
+    # replays the sampled pool (pop_rotating reshuffles and reuses the same set).
+    # Replaying a tiny sampled set lets coprocessor/region caches serve most reads
+    # and unrealistically lowers latency. Flag it loudly and record it.
+    events_replayed = not args.unique_events_required
+    unique_event_pool = len(normal_events) + len(hot_events)
+    if events_replayed:
+        print(
+            "WARNING: --unique-events-required is OFF, so the sampled event pool "
+            f"({unique_event_pool} unique events: {len(normal_events)} normal + {len(hot_events)} hot) "
+            "will be ROTATED/REPLAYED for the whole run. Replaying a small set hits "
+            "TiDB coprocessor/region caches and reports unrealistically fast latency. "
+            "Pass --unique-events-required (and a large enough sampled pool) for a "
+            "production-shaped unique-event run."
+        )
     target_events = (args.burst_events or math.ceil(args.duration * args.read_rate)) if args.dispatch_mode == "burst" else math.ceil(args.duration * args.read_rate)
     expected_hot_events = math.ceil(target_events * args.hot_event_pct)
     expected_normal_events = target_events - expected_hot_events
@@ -2000,8 +2096,8 @@ def main() -> None:
     print_summary("Steady reads", steady_reads)
     print_summary("Normal steady", normal_reads)
     print_summary("Hot-key steady", hot_reads)
-    coverage = bundle_coverage_summary(steady_reads, len(all_bundles))
-    completion_coverage = bundle_coverage_summary(steady_reads, len(all_bundles), "bundle_completion_counts_by_cutoff")
+    coverage = bundle_coverage_summary(steady_reads, len(all_bundles), score_ready_bundles=args.score_ready_bundles)
+    completion_coverage = bundle_coverage_summary(steady_reads, len(all_bundles), "bundle_completion_counts_by_cutoff", score_ready_bundles=args.score_ready_bundles)
     print_bundle_coverage(coverage)
     print_bundle_coverage(completion_coverage)
     print_fanout_capacity(fanout_capacity)
@@ -2106,8 +2202,10 @@ def main() -> None:
         "hot_event_pct": args.hot_event_pct,
         "hot_events_per_field": args.hot_events_per_field,
         "fast_normal_sampling": args.fast_normal_sampling,
-        "normal_candidate_multiplier": args.normal_candidate_multiplier,
         "unique_events_required": args.unique_events_required,
+        "events_replayed": events_replayed,
+        "unique_event_pool": unique_event_pool,
+        "no_hot_fields": sorted(no_hot_fields),
         "summary_only": args.summary_only,
         "event_workers": event_workers,
         "bundle_workers": bundle_workers,
