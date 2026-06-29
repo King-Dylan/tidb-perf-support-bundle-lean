@@ -59,12 +59,6 @@ DEFAULT_NO_GROUP_BY_BUNDLES = {
     "group_c_bundle_018",
     "group_c_bundle_021",
 }
-DEFAULT_GROUP_B_SPLIT_DISTINCT_BUNDLES = {
-    "group_b_bundle_010",
-    "group_b_bundle_011",
-    "group_b_bundle_012",
-}
-GROUP_B_SPLIT_DISTINCT_INLINE_FIELDS = {"d.agent_type"}
 GROUP_FILTER_RE = re.compile(r"\b([pd]\.[a-z0-9_]+)\s*=\s*%s\b", re.I)
 
 
@@ -91,11 +85,7 @@ DEFAULT_GROUP_C_INNER_JOIN_BUNDLES: set[str] = {
     "group_c_bundle_018",
     "group_c_bundle_021",
 }
-DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES: set[str] = {
-    "group_c_bundle_016",
-    "group_c_bundle_017",
-    "group_c_bundle_018",
-}
+DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES: set[str] = set()
 GROUP_C_INNER_JOIN_BUNDLES = parse_bundle_set_env(
     "INTUIT_GROUP_C_INNER_JOIN_BUNDLES",
     DEFAULT_GROUP_C_INNER_JOIN_BUNDLES,
@@ -103,10 +93,6 @@ GROUP_C_INNER_JOIN_BUNDLES = parse_bundle_set_env(
 GROUP_C_DEVICE_FIRST_JOIN_BUNDLES = parse_bundle_set_env(
     "INTUIT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES",
     DEFAULT_GROUP_C_DEVICE_FIRST_JOIN_BUNDLES,
-)
-GROUP_B_SPLIT_DISTINCT_BUNDLES = parse_bundle_set_env(
-    "INTUIT_GROUP_B_SPLIT_DISTINCT_BUNDLES",
-    DEFAULT_GROUP_B_SPLIT_DISTINCT_BUNDLES,
 )
 RUNTIME_WINDOW_UPPER_BOUND = os.getenv("INTUIT_RUNTIME_WINDOW_UPPER_BOUND", "0").strip().lower() in {
     "1",
@@ -498,8 +484,6 @@ class GroupBBundleSpec:
     templates: tuple[GroupBTemplateSpec, ...]
 
     def render_sql(self, reference_time: datetime) -> str:
-        if group_b_uses_split_distinct(self):
-            return render_group_b_split_distinct_sql(self, reference_time)
         select_parts: list[str] = []
         for tmpl in self.templates:
             select_parts.append(f"{build_group_b_metric_expr(tmpl)} AS `{metric_column(tmpl.template_id)}`")
@@ -558,75 +542,6 @@ def build_group_b_metric_expr(tmpl: GroupBTemplateSpec) -> str:
     raise ValueError(f"Unsupported Group B aggregate expression: {expr}")
 
 
-def group_b_distinct_inner(expr: str) -> str | None:
-    match = re.fullmatch(r"COUNT\(DISTINCT\((.*?)\)\)", expr.strip(), re.I)
-    if not match:
-        return None
-    return re.sub(r"\s+", "", match.group(1).strip())
-
-
-def group_b_uses_split_distinct(bundle: GroupBBundleSpec) -> bool:
-    if bundle.bundle_id not in GROUP_B_SPLIT_DISTINCT_BUNDLES:
-        return False
-    if not has_redundant_group_by(bundle.bundle_id, bundle.base_filter, bundle.group_by_fields):
-        return False
-    return any(
-        inner is not None and inner not in GROUP_B_SPLIT_DISTINCT_INLINE_FIELDS
-        for inner in (group_b_distinct_inner(tmpl.select_expr) for tmpl in bundle.templates)
-    )
-
-
-def group_b_runtime_predicate_repetitions(bundle: GroupBBundleSpec) -> int:
-    return 2 if group_b_uses_split_distinct(bundle) else 1
-
-
-def render_group_b_split_distinct_sql(bundle: GroupBBundleSpec, reference_time: datetime) -> str:
-    rollup_parts = ["COUNT(*) AS `__row_count`"]
-    distinct_parts: list[str] = []
-    final_parts: list[str] = []
-
-    for tmpl in bundle.templates:
-        metric_name = metric_column(tmpl.template_id)
-        distinct_inner = group_b_distinct_inner(tmpl.select_expr)
-        split_metric = distinct_inner is not None and distinct_inner not in GROUP_B_SPLIT_DISTINCT_INLINE_FIELDS
-
-        if split_metric:
-            distinct_parts.append(f"{build_group_b_metric_expr(tmpl)} AS `{metric_name}`")
-            final_parts.append(f"x.`{metric_name}` AS `{metric_name}`")
-        else:
-            rollup_parts.append(f"{build_group_b_metric_expr(tmpl)} AS `{metric_name}`")
-            final_parts.append(f"r.`{metric_name}` AS `{metric_name}`")
-
-        if tmpl.extra_predicate:
-            present_name = presence_column(tmpl.template_id)
-            rollup_parts.append(f"{build_presence_expr(tmpl.extra_predicate)} AS `{present_name}`")
-            final_parts.append(f"r.`{present_name}` AS `{present_name}`")
-
-    if not distinct_parts:
-        raise ValueError(f"{bundle.bundle_id} has no split distinct metrics")
-
-    cutoff_literal = (reference_time - timedelta(days=bundle.window_days)).strftime("%Y-%m-%d %H:%M:%S.%f")
-    reference_literal = reference_time.strftime("%Y-%m-%d %H:%M:%S.%f")
-    window_predicate = f"d.jms_timestamp >= '{cutoff_literal}'"
-    if RUNTIME_WINDOW_UPPER_BOUND:
-        window_predicate += f" AND d.jms_timestamp < '{reference_literal}'"
-    predicate = f"{bundle.base_filter} AND {window_predicate}"
-
-    return (
-        "SELECT\n  "
-        + ",\n  ".join(final_parts)
-        + "\nFROM (\n  SELECT\n    "
-        + ",\n    ".join(rollup_parts)
-        + "\n  FROM deviceprofile_fact d\n  WHERE "
-        + predicate
-        + "\n) r\nCROSS JOIN (\n  SELECT\n    "
-        + ",\n    ".join(distinct_parts)
-        + "\n  FROM deviceprofile_fact d\n  WHERE "
-        + predicate
-        + "\n) x\nWHERE r.`__row_count` > 0;"
-    )
-
-
 def cluster_group_b_templates() -> list[GroupBBundleSpec]:
     templates = [parse_group_b_template(t) for t in load_query_templates() if t.group == "B"]
     grouped: dict[tuple[str, int], list[GroupBTemplateSpec]] = defaultdict(list)
@@ -652,7 +567,7 @@ def cluster_group_b_templates() -> list[GroupBBundleSpec]:
 
 
 def run_group_b_bundle(pool: ConnectionPool, bundle: GroupBBundleSpec, bindings: dict[str, Any], reference_time: datetime) -> dict[str, Any]:
-    params = tuple(bindings[name] for name in bundle.param_names) * group_b_runtime_predicate_repetitions(bundle)
+    params = tuple(bindings[name] for name in bundle.param_names)
     sql = bundle.render_sql(reference_time)
     conn = pool.connection()
     started = time.perf_counter()

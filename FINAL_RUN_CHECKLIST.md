@@ -14,48 +14,38 @@ This must pass before running the benchmark. It rebuilds `go-loadgen/go-loadgen-
 
 ## 2. Build the source event pool from real data
 
-Choose the final run length first, then use the same duration for the source
-pool, Go workload, and fleet run. Do not build a 300K pool for a longer run.
-If the run is 10 minutes at 1000 EPS, build 600K source events; if it is 20
-minutes, build 1.2M source events. Otherwise the later part of the run cycles
-the same workload rows and becomes cache-friendly again.
-
-Example for a 10-minute 1000 EPS run:
+For a 5-minute 1000 EPS run:
 
 ```bash
-TARGET_EVENT_EPS=1000
-RUN_DURATION=10m
-RUN_LABEL=1000eps_10m
-
 python3 build_reuse_events_from_stats.py \
-  --target-event-eps "${TARGET_EVENT_EPS}" \
-  --duration "${RUN_DURATION}" \
-  --hot-event-pct 0.05 \
+  --target-event-eps 1000 \
+  --duration 5m \
+  --hot-event-pct 0.07 \
   --no-hot-field card_holder_number_sha512 \
   --no-hot-field check_bank_account_number_sha512 \
-  --output "results/reuse_events_${RUN_LABEL}.json"
+  --output results/reuse_events_1000eps_5m.json
 ```
 
-Sizing examples:
-
-- 5 minutes at 1000 EPS: 300,000 events
-- 10 minutes at 1000 EPS: 600,000 events
-- 20 minutes at 1000 EPS: 1,200,000 events
+For a 10-minute 1000 EPS run, change `--duration 10m`.
 
 **Why `--no-hot-field` on two fields.** The two SHA512 hash fields (`card_holder_number_sha512`, `check_bank_account_number_sha512`) have no real hot key, their most-frequent value appears only ~5 and ~589 times in the data (they are high-cardinality identifiers). Confirmed live against the cluster. So we inject hot keys only on the 6 fields that genuinely have them (merchant, routing, exact_id, smart_id, input_ip, true_ip); the 2 hash fields stay unique, exactly like production. The script still fails loudly if it cannot build enough normal events, or enough hot events for those 6 fields. Do not pass `--allow-event-reuse` or `--allow-partial-hot-fields` for the customer run.
+
+**Why `--hot-event-pct 0.07` (was 0.05).** Measured from cluster stats on 2026-06-26 (`SHOW STATS_TOPN` / `SHOW STATS_META`, hot = a field value with >10,000 occurrences, the harness's own normal/hot threshold). Per-field hot share of real traffic: routing 4.29%, input_ip 1.12%, true_ip 1.09%, smart_id 0.81%, merchant 0.10%, exact_id 0.09%; the two SHA512 fields are 0.00% (confirms `--no-hot-field`). Combined, ~5-7% of events are hot; 0.07 is the rounded-up (conservative) rate. This is a stats-based estimate from the two base tables (pmt_txn_fact 83.5M rows, deviceprofile_fact 365.8M rows); the exact event-level number depends on the join, and the tables reflect the all-time average, so confirm with Intuit whether their peak is spikier.
+
+**Known gap — hot-field mix is still even, real traffic is routing-dominated.** The generator currently spreads hot events evenly across the 6 real hot fields, but the measurement says hot events are ~57% routing-number, ~15% input_ip, ~14% true_ip, ~11% smart_id, ~1% merchant, ~1% exact_id. If routing lookups are the slow tail, the even split under-tests them. Weighting the hot-field selection to those shares is a follow-up (not yet wired into the generator default).
 
 ## 3. Generate the Go workload without event reuse
 
 ```bash
 python3 generate_go_workload.py \
-  --reuse-events-json "results/reuse_events_${RUN_LABEL}.json" \
-  --output "results/go_workload_${RUN_LABEL}.json" \
-  --target-event-eps "${TARGET_EVENT_EPS}" \
-  --duration "${RUN_DURATION}" \
-  --hot-event-pct 0.05 \
+  --reuse-events-json results/reuse_events_1000eps_5m.json \
+  --output results/go_workload_1000eps_5m.json \
+  --target-event-eps 1000 \
+  --duration 5m \
+  --hot-event-pct 0.07 \
   --runtime-window-params \
-  --no-require-hot-fields \
   --preagg-mode serving \
+  --serving-layout wide \
   --serving-bundle group_a_bundle_017 --serving-bundle group_a_bundle_018 \
   --serving-bundle group_a_bundle_019 --serving-bundle group_a_bundle_020 \
   --serving-bundle group_b_bundle_017 --serving-bundle group_b_bundle_018 \
@@ -66,7 +56,11 @@ python3 generate_go_workload.py \
 
 **IMPORTANT — pre-agg mode decides both realism and the 180d path.** This config gives the prior final-run shape: the **53 short-window bundles (1d/7d/30d/90d) run live against the base tables**, and the **12 180d bundles are served from the wide serving table** (`risk_feature_serving_wide`). Confirmed live: that keeps the 180d bundles at ~100-240ms.
 
-Do NOT use plain `--preagg-mode serving` (no `--serving-bundle`): that routes ALL 65 to the serving table, so nothing runs live and the result is unrealistically fast.
+`--serving-layout wide` is required to actually hit `risk_feature_serving_wide` (the single-row flat read). Without it the serving bundles default into the KV pivot table `risk_feature_serving`, which has a different latency profile and is NOT the documented/optimized path. After generating, confirm the workload JSON records `"serving_layout": "wide"` and `"serving_table": "risk_feature_serving_wide"`.
+
+Do not pass `--no-require-hot-fields` for the customer run. The generator now requires hot-key coverage on the 6 real hot fields (merchant, routing, exact_id, smart_id, input_ip, true_ip) by default and auto-relaxes the 2 SHA512 fields, so it will fail loud if the pool is missing hot coverage. `--no-require-hot-fields` is a smoke-test escape hatch only.
+
+Defaults now match the blessed shape with no flags (v4.5.2): a bare `--preagg-mode serving` (no `--serving-bundle`) resolves to exactly the 12 180d serving bundles (53 runtime + 12 serving), `--serving-layout` defaults to `wide`, the fleet's `--execution-mode` defaults to `conn-fanout`, and `--hot-event-pct` defaults to `0.07` (the measured event-hot rate, see the note above). The explicit flags shown above are kept for clarity but are no longer required. To route ALL 65 to the serving table for a smoke test, pass `--allow-all-serving`; any serving set other than the 12 fails loud.
 
 Do NOT use `--preagg-mode hybrid` either: that routes the 12 180d bundles to the **daily rollup tables** (`group_*_180d_daily_distinct`, which are huge, billions of rows), and in live testing those became the slow tail (~1.6-2.4s each). The wide serving table is the optimized path and what the prior run used.
 
@@ -76,9 +70,43 @@ Do not pass `--allow-event-reuse` for the customer-facing run. That flag is only
 
 Expected final-run checks:
 
-- `generated_workload_rows` should equal EPS x full run duration, for example 300,000 for 5 minutes, 600,000 for 10 minutes, or 1,200,000 for 20 minutes.
+- `generated_workload_rows` should equal EPS x duration, for example 300,000 for 5 minutes or 600,000 for 10 minutes.
 - `unique_full_binding_sets` should be close to the generated workload rows.
 - Hot-key events cover the 6 fields that have real hot keys (merchant, routing, exact_id, smart_id, input_ip, true_ip). The 2 SHA512 hash fields are intentionally excluded (no hot key).
+
+## 3.5 Serving-table coverage + 180d correctness gate (MUST pass before the full run)
+
+The 12 180d bundles are **served** from the pre-computed wide table `risk_feature_serving_wide` as point lookups keyed by (bundle, key, as_of = the event's own date). If that table has no row for an event's (bundle, key, date), the lookup returns **zero rows**, which the Go harness currently scores as a fast success — silently inflating the 65/65 headline. The wide table only covers the date range it was last built for, so a freshly built pool can reference uncovered days (measured ~89% coverage on a fresh RAND-sampled pool against a table that stopped at `2026-04-10`).
+
+Two gates, both must pass:
+
+1. **Coverage preflight** (fail-loud if the serving table is stale for this pool):
+
+```bash
+python3 serving_coverage_check.py \
+  --pool results/reuse_events_1000eps_5m.json \
+  --min-coverage 0.99
+```
+
+If this fails, **(re)build the wide serving table for THIS pool's date range** with the one-shot driver (it is a materialized view that must be refreshed for the run window — Intuit Additional Requirement #6):
+
+```bash
+python3 refill_serving.py --pool results/reuse_events_1000eps_5m.json --workers 8
+```
+
+`refill_serving.py` is validated end-to-end (builds the 12 PROD180 serving bundles from the reuse-events pool, forces TLS, pins reads to TiKV so the 180d aggregation can't OOM TiFlash, parallel workers). Measured ~14 rows/sec/worker; an average pool's ~30 missing days is ~5-6 min at `--workers 8`, faster on a scaled-up cluster. For a bounded proof first: add `--limit-keys 500 --table risk_feature_serving_wide_test`. Then re-run the coverage preflight (expect >=99%). Do not run the full benchmark below 99% coverage.
+
+2. **Served-value correctness** (wide == prod180 rollup == raw runtime 180d aggregate):
+
+```bash
+python3 spotcheck_wide_serving.py
+```
+
+Expect `ALL_PASS` (12/12). Verified 2026-06-29: 12/12 at as_of `2026-04-10`.
+
+**Defense in depth (Jinlong / Go side):** `main.go` should count an empty serving response as a distinct outcome, NOT a success. See `GO_HANDOFF_JINLONG.md`.
+
+**Cluster footprint:** the full run needs the cluster scaled UP for throughput (TiKV/TiDB) before steps 2-6 — a scaled-in footprint can't sustain 1000 EPS. Note the benchmark and the pool build pin `tidb_isolation_read_engines='tikv'`, so they run TiKV-only and do NOT use TiFlash; TiFlash sits idle during the run and can be scaled down to save RU (keep the replica definition for the analytics story — do not `SET TIFLASH REPLICA 0`). Only an ad-hoc query *without* the TiKV pin can get routed to TiFlash MPP and OOM on a scaled-in footprint, so pin `tikv` for any manual probing.
 
 ## 4. Run a tiny validation first
 
@@ -111,47 +139,52 @@ Required correctness checks:
 
 Run from the bundle `code/` dir. Fill in your real hosts and key. `--remote-dir`, `--workload`, and the EPS/duration must match what you deployed and generated in step 3.
 
-For 10 minutes at 1000 EPS:
-
-```bash
-RUN_DURATION=10m
-RUN_EVENTS=600000
-RUN_LABEL=1000eps_10m
-```
-
-For 20 minutes at 1000 EPS, use `RUN_DURATION=20m`, `RUN_EVENTS=1200000`,
-and `RUN_LABEL=1000eps_20m`.
-
 ```bash
 python3 run_go_loadgen_fleet.py \
   --hosts "ec2-user@host1,ec2-user@host2,ec2-user@host3,ec2-user@host4,ec2-user@host5,ec2-user@host6,ec2-user@host7,ec2-user@host8" \
   --ssh-key ~/intuit-bench.pem \
   --remote-dir /home/ec2-user/intuit-demo/code \
-  --workload "results/go_workload_${RUN_LABEL}.json" \
+  --workload results/go_workload_1000eps_5m.json \
   --execution-mode conn-fanout \
   --prepare-all \
-  --events-total "${RUN_EVENTS}" \
   --target-event-eps 1000 \
-  --duration "${RUN_DURATION}" \
+  --duration 5m \
   --query-timeout 0s \
-  --max-execution-time-ms 0 \
-  --output-prefix "go_fleet_${RUN_LABEL}"
+  --max-execution-time-ms 500 \
+  --output-prefix go_fleet_1000eps_5m
 ```
 
 Notes:
+- `--max-execution-time-ms 500` caps each bundle at Intuit's 500ms deadline (TiDB `max_execution_time`, server-side). A bundle that exceeds it is aborted and counts as a miss, and its connection is freed immediately so a slow tail can't starve other events. Precision is ~100ms. For an uncapped diagnostic run (to see true tail latencies and tune the slow bundles first), set `--max-execution-time-ms 0`.
 - `--hosts` and `--ssh-key` are required (the script exits if missing). `--workload` must be passed explicitly; if omitted it silently falls back to a default filename that step 3 does not produce.
 - `--remote-dir` must point at wherever the bundle was deployed on the hosts (this matches the `cd` path in step 1). The script's built-in default is a different path.
 - The fleet divides `--target-event-eps` across the worker processes, so the cluster sees ~1000 events/sec total, not per host.
-- Use `conn-fanout` or `event-fanout`. Avoid `worker-pool` for the customer-facing run, the per-event SLA / cutoff metrics are only recorded in the fanout modes (the report footnotes those tables otherwise).
+- **Concurrency ladder (Intuit Additional Requirement #5):** in addition to the 1000 EPS run, run the same fleet at `--target-event-eps` 100, 200, 500, and 1000 (separate `--output-prefix` each) and report P50/P95/P99 + TPS at each level. The value is the **curve** — flat latency as load climbs proves headroom and directly answers Intuit's "does it hold at scale" doubt — not any single point. Each rung should be a sustained 5-10 min run, not a burst.
+- Use `conn-fanout` for the customer-facing run (as above). `conn-fanout` applies real backpressure across the connection pool; `event-fanout` has no backpressure and folds connection-wait into query time, which inflates the wall-clock latency shown to the customer when the pool is contended. Avoid `worker-pool`: the per-event SLA / cutoff metrics are only recorded in the fanout modes (the report footnotes those tables otherwise).
 
 ## 6. Generate the customer report immediately after the run
 
 ```bash
 python3 customer_event_report.py \
-  --workload "results/go_workload_${RUN_LABEL}.json" \
-  --results results/<run_prefix>_*.json \
+  --workload results/go_workload_1000eps_5m.json \
+  --results results/<run_prefix>_[0-9]*.json \
+  --fleet-summary results/<run_prefix>_summary.json \
   --output-md results/<run_prefix>_customer_event_report.md \
   --output-json results/<run_prefix>_customer_event_report.json
 ```
 
+Notes:
+- The fleet runner writes one per-host result `results/<run_prefix>_<index>.json` per app process **and** a fleet summary `results/<run_prefix>_summary.json`. The summary carries the true fleet-wide run shape (total target EPS, total connections, app-process count, duration). Pass it with `--fleet-summary` so the report's headline target EPS and total connections are the FLEET totals, not a single process's per-process slice.
+- Use the `--results results/<run_prefix>_[0-9]*.json` glob (numeric suffix) so the per-host glob does NOT also match `<run_prefix>_summary.json`. The report also excludes any `*_summary.json` it sees, but the numeric glob keeps the inputs unambiguous and avoids counting the summary as an extra app process.
+- If `--fleet-summary` is omitted, the report falls back to deriving the fleet shape from the per-host result files (summing the per-process target EPS and connections across processes, and taking the MAX elapsed since the processes run concurrently). Prefer passing `--fleet-summary` for the customer report so the headline numbers are authoritative.
+
 Do not delete/recycle EC2 instances until the Markdown report and JSON report have been reviewed.
+
+## Disclosures for the customer report
+
+State these up front so the numbers are read correctly and we are not caught over-claiming:
+
+- **180d window coverage:** fully backed on transactions; **~160 days on device** (device data starts `2025-11-01`, so the earliest ~20 days of a 180-day window ending `2026-04-10` have no device rows). Aggregates are correct relative to the loaded data (wide == raw verified); a true full-180 device window is a backfill item (Additional Requirement #6 / POC).
+- **Latency boundary:** reported latency is client event wall-clock (fan-out to fan-in), which already includes one real loadgen->TiDB network round trip. The spec assumes ~10ms app<->service network; state headroom against the 300ms (and Andrew's 350ms) end-to-end SLA rather than implying DB-only.
+- **Read-strategy scope:** the load test exercises the production read pattern (65 bundled SQL, with the 12 180d bundles served from the wide row). The naive ~1200-individual-queries-per-event form is the single-event baseline (it cannot meet SLA at 1000 EPS); do **not** claim both strategies were load-tested at 1000 QPS.
+- **Serving coverage:** confirm `serving_coverage_check.py` reported >=99% for the run's pool, so empty serving lookups did not pad the 65/65 number.

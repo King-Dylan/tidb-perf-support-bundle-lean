@@ -68,8 +68,20 @@ def main() -> None:
     )
     ap.add_argument("--target-event-eps", type=float, default=0.0, help="Fleet-wide target event EPS used to compute --target-workload-events.")
     ap.add_argument("--duration", default="", help="Run duration used to compute --target-workload-events, for example 300s, 5m, or 10m.")
-    ap.add_argument("--hot-event-pct", type=float, default=0.05)
+    # 0.07 measured from cluster stats (2026-06-26): ~5-7% of events sit on a hot
+    # key (>10k occurrences), dominated by check_bank_routing_number (~4.3%). 0.07
+    # is the rounded-up (conservative) event-hot rate. NOTE: field mix is still even
+    # here; real hot traffic is ~57% routing-driven (see FINAL_RUN_CHECKLIST.md).
+    ap.add_argument("--hot-event-pct", type=float, default=0.07)
     ap.add_argument("--recent-limit", type=int, default=100000)
+    ap.add_argument(
+        "--min-hot-frequency",
+        type=int,
+        default=50,
+        help="Minimum occurrence count for a value to be treated as a real hot key. "
+        "Applied to fallback (recent-window) hot keys when SHOW STATS_TOPN has no entry; "
+        "the builder fails loudly rather than fabricating a hot key from a value that is not actually hot.",
+    )
     ap.add_argument("--max-payment-rows", type=int, default=10000)
     ap.add_argument("--max-device-rows", type=int, default=10000)
     ap.add_argument("--validate-normal-counts", action="store_true")
@@ -86,6 +98,13 @@ def main() -> None:
     )
     ap.add_argument("--output", default="results/reuse_events_hua_fullscale.json")
     args = ap.parse_args()
+
+    unknown_no_hot = [f for f in args.no_hot_field if f not in KEY_FIELDS]
+    if unknown_no_hot:
+        raise ValueError(
+            f"--no-hot-field value(s) {unknown_no_hot!r} are not known field names. "
+            f"Valid field names are: {', '.join(KEY_FIELDS)}."
+        )
 
     computed_target = 0
     if args.target_event_eps > 0 or args.duration:
@@ -154,8 +173,25 @@ def main() -> None:
                     (args.recent_limit,),
                 )
                 values = [str(row[0]) for row in cur.fetchall()]
+                if not values:
+                    raise RuntimeError(
+                        f"fallback hot-key lookup for {table}.{column} returned no rows; "
+                        "cannot derive a hot key. Exclude this field with --no-hot-field "
+                        "or provide a source pool with data."
+                    )
                 value, count = collections.Counter(values).most_common(1)[0]
-                return value, count, f"recent_top_{args.recent_limit}"
+                if count < args.min_hot_frequency:
+                    raise RuntimeError(
+                        f"fallback hot-key for {table}.{column} value={value!r} occurs only "
+                        f"{count:,} time(s) within the most recent {args.recent_limit:,} rows, "
+                        f"below --min-hot-frequency ({args.min_hot_frequency:,}). This value is not "
+                        "actually hot; refusing to fabricate a hot key. Exclude this field with "
+                        "--no-hot-field, or lower --min-hot-frequency only if you have verified it is hot."
+                    )
+                # NOTE: this count is the frequency within the recent-window sample, NOT a
+                # table-wide row count. The source label below makes that explicit so the report
+                # does not present it as an authoritative table-wide hot-key count.
+                return value, count, f"recent_window_count_top_{args.recent_limit}"
 
             for table_name, alias, column, field_name in FILTER_FIELDS:
                 if field_name in args.no_hot_field:

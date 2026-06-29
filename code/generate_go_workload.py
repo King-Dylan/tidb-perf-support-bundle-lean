@@ -15,21 +15,17 @@ import os
 import re
 import sys
 import time
-from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from demo import (
-    cluster_group_a_templates,
-    cluster_group_b_templates,
-    cluster_group_c_templates,
-    group_b_runtime_predicate_repetitions,
-)
+from demo import cluster_group_a_templates, cluster_group_b_templates, cluster_group_c_templates
 from mixed_traffic_test import bundle_params, render_bundle_sql, should_skip_null_binding
 from optimized_config import EXACT_SERVING_BUNDLES, PROD180_PREAGG_BUNDLES
+import exact_serving
+from exact_serving import default_table_for_layout, validate_serving_layout
 
 
 ROOT = Path(__file__).resolve().parent
@@ -43,12 +39,17 @@ KEY_FIELDS = [
     "input_ip",
     "true_ip",
 ]
-EVENT_SOURCE_MODEL = "real_joined_payment_device_event"
-EVENT_SOURCE_MODEL_NOTE = (
-    "Each workload event preserves the complete 8-field binding set from one "
-    "real joined pmt_txn_fact/deviceprofile_fact source event. The generator "
-    "does not cross-join independent key pools to manufacture synthetic events."
-)
+
+# The 2 SHA512 fields are excluded from the hot-key pool by design (see
+# FINAL_RUN_CHECKLIST.md: the blessed pool is built with
+# --no-hot-field card_holder_number_sha512 --no-hot-field check_bank_account_number_sha512),
+# so a correctly-built 6-hot-field pool has ZERO hot events for these. Auto-relax
+# the hot-field requirement for them so --require-hot-fields cannot crash the
+# blessed invocation.
+HOT_FIELD_EXCLUDED = {
+    "card_holder_number_sha512",
+    "check_bank_account_number_sha512",
+}
 
 
 def parse_duration_seconds(raw: str) -> float:
@@ -117,7 +118,10 @@ def validate_source_pool(
 
     if hot_needed > 0:
         present_fields = {field for field, events in hot_by_field.items() if events}
-        missing_fields = [field for field in KEY_FIELDS if field not in present_fields]
+        # Auto-relax the 2 SHA512 fields: they are excluded from the hot-key pool
+        # by design, so never require hot events for them.
+        required_fields = [f for f in KEY_FIELDS if f not in HOT_FIELD_EXCLUDED]
+        missing_fields = [field for field in required_fields if field not in present_fields]
         if require_hot_fields and missing_fields:
             raise ValueError(
                 "source event pool is missing hot-key events for required fields: "
@@ -207,56 +211,6 @@ def binding_key(event: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(bindings.get(field) for field in KEY_FIELDS)
 
 
-def event_id(event: dict[str, Any]) -> Any:
-    return event.get("invoice_number") or event.get("event")
-
-
-def counter_max(counter: Counter[Any]) -> int:
-    return max(counter.values(), default=0)
-
-
-def short_counter_examples(counter: Counter[Any], limit: int = 5) -> str:
-    duplicates = [f"{key!r} x{count}" for key, count in counter.items() if count > 1]
-    return ", ".join(duplicates[:limit])
-
-
-def validate_selected_events(events: list[dict[str, Any]], allow_event_reuse: bool) -> None:
-    missing: list[str] = []
-    for idx, event in enumerate(events):
-        if event_id(event) is None:
-            missing.append(f"event[{idx}] missing invoice_number")
-            continue
-        bindings = event.get("bindings") or {}
-        missing_fields = [field for field in KEY_FIELDS if bindings.get(field) is None]
-        if missing_fields:
-            missing.append(f"event[{idx}] {event_id(event)!r} missing {','.join(missing_fields)}")
-        if bindings.get("parsed_interaction_id") is None:
-            missing.append(f"event[{idx}] {event_id(event)!r} missing parsed_interaction_id")
-        if len(missing) >= 10:
-            break
-    if missing:
-        raise ValueError(
-            "source events are not complete real joined payment/device binding sets: "
-            + "; ".join(missing)
-        )
-
-    if allow_event_reuse:
-        return
-
-    source_counts = Counter(event_id(event) for event in events)
-    binding_counts = Counter(binding_key(event) for event in events)
-    if counter_max(source_counts) > 1:
-        raise ValueError(
-            "source event reuse detected in a no-reuse workload: "
-            + short_counter_examples(source_counts)
-        )
-    if counter_max(binding_counts) > 1:
-        raise ValueError(
-            "full 8-field binding-set reuse detected in a no-reuse workload: "
-            + short_counter_examples(binding_counts)
-        )
-
-
 def json_param(value: Any) -> Any:
     if value is None:
         return None
@@ -341,7 +295,9 @@ def main() -> None:
     ap.add_argument("--events", type=int, default=0, help="Total workload events to generate. If omitted with --target-event-eps/--duration, computed as EPS * duration.")
     ap.add_argument("--target-event-eps", type=float, default=0.0, help="Fleet-wide target event EPS used to compute --events.")
     ap.add_argument("--duration", default="", help="Run duration used to compute --events, for example 300s, 5m, or 10m.")
-    ap.add_argument("--hot-event-pct", type=float, default=0.05)
+    # 0.07 = measured event-hot rate from cluster stats (2026-06-26); see
+    # build_reuse_events_from_stats.py and FINAL_RUN_CHECKLIST.md for the derivation.
+    ap.add_argument("--hot-event-pct", type=float, default=0.07)
     ap.add_argument(
         "--allow-event-reuse",
         action="store_true",
@@ -351,12 +307,37 @@ def main() -> None:
         "--require-hot-fields",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Require hot-key events for all 8 key fields when hot-event-pct is non-zero.",
+        help=(
+            "Require hot-key events for the 6 REAL hot-key fields (merchant_account_number, "
+            "check_bank_routing_number, exact_id, smart_id, input_ip, true_ip). The 2 SHA512 "
+            "fields (card_holder_number_sha512, check_bank_account_number_sha512) are excluded "
+            "by design and auto-relaxed, so this guard does NOT crash the blessed "
+            "6-hot-field/2-excluded pool. Defaults to ON so the generate-time coverage guard is "
+            "active for customer-facing runs; pass --no-require-hot-fields only as a smoke-test "
+            "escape hatch."
+        ),
     )
     ap.add_argument("--preagg-mode", choices=["serving", "hybrid", "runtime-only"], default="serving")
+    ap.add_argument(
+        "--serving-layout",
+        choices=["kv", "wide"],
+        default=os.getenv("INTUIT_SERVING_LAYOUT", "wide"),
+        help="Physical serving table layout for the 12 serving bundles. Defaults to 'wide' (risk_feature_serving_wide), the documented final-run path.",
+    )
     ap.add_argument("--preagg-layout", choices=["prod180", "bundle"], default=os.getenv("PREAGG_LAYOUT", "prod180"))
     ap.add_argument("--serving-as-of-grain", choices=["day", "timestamp"], default=os.getenv("INTUIT_SERVING_AS_OF_GRAIN", "day"))
     ap.add_argument("--serving-bundle", action="append", default=[])
+    ap.add_argument(
+        "--allow-all-serving",
+        action="store_true",
+        default=False,
+        help=(
+            "Smoke-test escape hatch: permit a serving set that is not exactly the 12 "
+            "PROD180_PREAGG_BUNDLES under --preagg-mode serving. Without this, a bare "
+            "--preagg-mode serving (which would route ALL 65 bundles to the serving table) "
+            "fails loudly. Keep OFF for customer-facing final runs."
+        ),
+    )
     ap.add_argument("--exclude-bundle", action="append", default=[])
     ap.add_argument(
         "--tiflash-mpp-bundle",
@@ -367,8 +348,8 @@ def main() -> None:
     ap.add_argument(
         "--runtime-window-params",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Parameterize non-preagg runtime start/end windows per event so prepared templates do not freeze the first event reference time.",
+        default=True,
+        help="Parameterize non-preagg runtime start/end windows per event so prepared templates do not freeze the first event reference time. Defaults to ON (per-event windows) so the frozen-window footgun is off by default; pass --no-runtime-window-params only for explicit single-window experiments.",
     )
     args = ap.parse_args()
 
@@ -395,9 +376,27 @@ def main() -> None:
         allow_event_reuse=args.allow_event_reuse,
         require_hot_fields=args.require_hot_fields,
     )
-    validate_selected_events(events, allow_event_reuse=args.allow_event_reuse)
+
+    serving_layout = validate_serving_layout(args.serving_layout)
 
     bundle_pairs = all_bundle_pairs()
+    known_bundle_ids = {bundle.bundle_id for bundle, _ in bundle_pairs}
+
+    # Validate every user-supplied bundle id against the known set so a typo
+    # (e.g. group_a_bundle_17 instead of group_a_bundle_017) fails loudly
+    # instead of silently misrouting a real 180d bundle to the slow preagg path.
+    for flag_name, ids in (
+        ("--serving-bundle", args.serving_bundle),
+        ("--exclude-bundle", args.exclude_bundle),
+        ("--tiflash-mpp-bundle", args.tiflash_mpp_bundle),
+    ):
+        unknown = sorted({bid for bid in ids if bid not in known_bundle_ids})
+        if unknown:
+            raise ValueError(
+                f"{flag_name} references unknown bundle id(s): {', '.join(unknown)}. "
+                "Check for typos; valid ids come from the Group A/B/C bundle templates."
+            )
+
     excluded = set(args.exclude_bundle)
     if excluded:
         bundle_pairs = [(bundle, group) for bundle, group in bundle_pairs if bundle.bundle_id not in excluded]
@@ -405,12 +404,49 @@ def main() -> None:
     serving_bundles = set(args.serving_bundle)
     tiflash_mpp_bundles = set(args.tiflash_mpp_bundle)
     if args.preagg_mode == "serving" and not serving_bundles:
-        serving_bundles = set(EXACT_SERVING_BUNDLES)
+        # Default to the blessed Intuit shape: the 12 180d serving bundles (yielding
+        # 53 runtime + 12 serving). Only resolve to all 65 EXACT_SERVING_BUNDLES when
+        # --allow-all-serving is passed (smoke tests). This makes a bare
+        # "--preagg-mode serving" produce the correct split with NO flags, instead of
+        # silently routing all 65 bundles to the serving table.
+        serving_bundles = (
+            set(EXACT_SERVING_BUNDLES) if args.allow_all_serving else set(PROD180_PREAGG_BUNDLES)
+        )
+
+    # FAIL LOUD: a bare "--preagg-mode serving" with no --serving-bundle resolves
+    # serving_bundles to all 65 EXACT_SERVING_BUNDLES, silently routing EVERY bundle
+    # to the serving table. The blessed final-run shape is exactly the 12
+    # PROD180_PREAGG_BUNDLES on serving (53 runtime + 12 serving). Refuse any other
+    # serving set under --preagg-mode serving unless --allow-all-serving is passed
+    # for a smoke test.
+    if args.preagg_mode == "serving" and not args.allow_all_serving:
+        expected_serving = set(PROD180_PREAGG_BUNDLES)
+        if serving_bundles != expected_serving:
+            extra = sorted(serving_bundles - expected_serving)
+            missing = sorted(expected_serving - serving_bundles)
+            raise SystemExit(
+                "--preagg-mode serving resolved a serving set that is not exactly the 12 "
+                f"PROD180_PREAGG_BUNDLES ({len(serving_bundles)} bundle(s) resolved). This "
+                "would misroute bundles to the serving table. Pass the 12 explicitly via "
+                "--serving-bundle (the blessed checklist does this: 53 runtime + 12 serving), "
+                "or pass --allow-all-serving for a smoke test only.\n"
+                f"  unexpected serving bundles ({len(extra)}): {', '.join(extra) or '(none)'}\n"
+                f"  missing PROD180 bundles ({len(missing)}): {', '.join(missing) or '(none)'}"
+            )
+
     if args.preagg_mode in {"hybrid", "serving"}:
         preagg_bundles = set(PROD180_PREAGG_BUNDLES) - serving_bundles
     else:
         preagg_bundles = set()
     tiflash_mpp_bundles -= preagg_bundles | serving_bundles
+
+    # render_bundle_sql -> render_serving_query falls back to the exact_serving
+    # module global SERVING_LAYOUT when no explicit layout is passed. Set it to
+    # the resolved --serving-layout so the 12 serving bundles render against the
+    # intended table (default 'wide' = risk_feature_serving_wide), not the 'kv'
+    # default that does not match the documented final-run shape.
+    exact_serving.SERVING_LAYOUT = serving_layout
+    serving_table = default_table_for_layout(serving_layout)
 
     templates = []
     template_sql_by_bundle: dict[str, str] = {}
@@ -461,26 +497,7 @@ def main() -> None:
                         serving_as_of_grain=args.serving_as_of_grain,
                     )
                 ]
-                if (
-                    bundle.bundle_id in runtime_window_param_bundles
-                    and group == "B"
-                    and group_b_runtime_predicate_repetitions(bundle) > 1
-                ):
-                    base_params = [json_param(event["bindings"].get(name)) for name in bundle.param_names]
-                    window_params = [
-                        json_param(value)
-                        for value in runtime_window_params(
-                            bundle,
-                            group,
-                            reference_time,
-                            template_sql_by_bundle[bundle.bundle_id],
-                        )
-                    ]
-                    params = []
-                    for _ in range(group_b_runtime_predicate_repetitions(bundle)):
-                        params.extend(base_params)
-                        params.extend(window_params)
-                elif bundle.bundle_id in runtime_window_param_bundles:
+                if bundle.bundle_id in runtime_window_param_bundles:
                     params.extend(
                         json_param(value)
                         for value in runtime_window_params(
@@ -508,36 +525,15 @@ def main() -> None:
             }
         )
 
-    source_event_ids = [event_id(event) for event in events]
+    source_event_ids = [event.get("invoice_number") for event in events]
     full_binding_keys = [binding_key(event) for event in events]
-    source_event_counts = Counter(source_event_ids)
-    full_binding_counts = Counter(full_binding_keys)
     selected_hot_by_field = {
         field: sum(1 for event in events if event.get("hot_field") == field)
         for field in KEY_FIELDS
     }
-    binding_fields = {}
-    for field in KEY_FIELDS:
-        values = [(event.get("bindings") or {}).get(field) for event in events]
-        counts = Counter(values)
-        binding_fields[field] = {
-            "distinct": len(counts),
-            "max_repeat": counter_max(counts),
-        }
-    hot_values = {
-        field: {
-            "source": profile.get("source", ""),
-            "table": profile.get("table", ""),
-            "value": profile.get("value"),
-            "count": profile.get("count"),
-        }
-        for field, profile in ((payload.get("profile") or {}).get("hot_fields", {}) or {}).items()
-    }
     output = {
         "generated_at_unix": time.time(),
         "source_events_json": str(source_path),
-        "event_source_model": EVENT_SOURCE_MODEL,
-        "event_source_model_note": EVENT_SOURCE_MODEL_NOTE,
         "mode": "bundle-serving" if args.preagg_mode == "serving" else args.preagg_mode,
         "event_count": len(workload_events),
         "target_event_eps": args.target_event_eps,
@@ -545,6 +541,8 @@ def main() -> None:
         "computed_events_from_rate": computed_events,
         "bundle_count": len(templates),
         "serving_as_of_grain": args.serving_as_of_grain,
+        "serving_layout": serving_layout,
+        "serving_table": serving_table,
         "preagg_layout": args.preagg_layout,
         "runtime_window_params": args.runtime_window_params,
         "runtime_window_param_bundle_count": len(runtime_window_param_bundles),
@@ -555,29 +553,16 @@ def main() -> None:
         "serving_bundles": sorted(serving_bundles),
         "tiflash_mpp_bundles": sorted(tiflash_mpp_bundles),
         "hot_key_profile": (payload.get("profile") or {}).get("hot_fields", {}),
-        "event_selection": {
-            "source_model": EVENT_SOURCE_MODEL,
-            "source_model_note": EVENT_SOURCE_MODEL_NOTE,
-            "source_reused": bool(args.allow_event_reuse),
-            "unique_events_required": not args.allow_event_reuse,
-            "cross_joined_independent_key_pools": False,
-        },
         "workload_stats": {
-            "event_rows": len(workload_events),
             "generated_workload_rows": len(workload_events),
             "unique_source_events": len(set(source_event_ids)),
-            "unique_binding_sets": len(set(full_binding_keys)),
             "unique_full_binding_sets": len(set(full_binding_keys)),
-            "source_event_reuse_max": counter_max(source_event_counts),
-            "full_binding_reuse_max": counter_max(full_binding_counts),
-            "event_source_model": EVENT_SOURCE_MODEL,
-            "cross_joined_independent_key_pools": False,
+            "source_event_reuse_max": max((source_event_ids.count(event_id) for event_id in set(source_event_ids)), default=0),
+            "full_binding_reuse_max": max((full_binding_keys.count(key) for key in set(full_binding_keys)), default=0),
             "hot_event_pct": args.hot_event_pct,
             "planned_hot_events": planned_hot_count(args.events, args.hot_event_pct),
             "planned_normal_events": args.events - planned_hot_count(args.events, args.hot_event_pct),
             "selected_hot_events_by_field": selected_hot_by_field,
-            "binding_fields": binding_fields,
-            "hot_values": hot_values,
         },
         "templates": templates,
         "events": workload_events,
