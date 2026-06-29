@@ -17,7 +17,7 @@ import time
 from datetime import date, datetime, timedelta, timezone
 from lib.db_config import get_db_config
 
-PARTITION_GRAIN = os.environ.get("INTUIT_PARTITION_GRAIN", "weekly").lower()
+PARTITION_GRAIN = os.environ.get("INTUIT_PARTITION_GRAIN", "monthly").lower()
 if PARTITION_GRAIN not in {"daily", "weekly", "monthly", "none"}:
     print("ERROR: INTUIT_PARTITION_GRAIN must be daily, weekly, monthly, or none")
     sys.exit(1)

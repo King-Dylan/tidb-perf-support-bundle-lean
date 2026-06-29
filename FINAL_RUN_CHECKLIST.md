@@ -74,6 +74,40 @@ Expected final-run checks:
 - `unique_full_binding_sets` should be close to the generated workload rows.
 - Hot-key events cover the 6 fields that have real hot keys (merchant, routing, exact_id, smart_id, input_ip, true_ip). The 2 SHA512 hash fields are intentionally excluded (no hot key).
 
+## 3.5 Serving-table coverage + 180d correctness gate (MUST pass before the full run)
+
+The 12 180d bundles are **served** from the pre-computed wide table `risk_feature_serving_wide` as point lookups keyed by (bundle, key, as_of = the event's own date). If that table has no row for an event's (bundle, key, date), the lookup returns **zero rows**, which the Go harness currently scores as a fast success — silently inflating the 65/65 headline. The wide table only covers the date range it was last built for, so a freshly built pool can reference uncovered days (measured ~89% coverage on a fresh RAND-sampled pool against a table that stopped at `2026-04-10`).
+
+Two gates, both must pass:
+
+1. **Coverage preflight** (fail-loud if the serving table is stale for this pool):
+
+```bash
+python3 serving_coverage_check.py \
+  --pool results/reuse_events_1000eps_5m.json \
+  --min-coverage 0.99
+```
+
+If this fails, **(re)build the wide serving table for THIS pool's date range** with the one-shot driver (it is a materialized view that must be refreshed for the run window — Intuit Additional Requirement #6):
+
+```bash
+python3 refill_serving.py --pool results/reuse_events_1000eps_5m.json --workers 8
+```
+
+`refill_serving.py` is validated end-to-end (builds the 12 PROD180 serving bundles from the reuse-events pool, forces TLS, pins reads to TiKV so the 180d aggregation can't OOM TiFlash, parallel workers). Measured ~14 rows/sec/worker; an average pool's ~30 missing days is ~5-6 min at `--workers 8`, faster on a scaled-up cluster. For a bounded proof first: add `--limit-keys 500 --table risk_feature_serving_wide_test`. Then re-run the coverage preflight (expect >=99%). Do not run the full benchmark below 99% coverage.
+
+2. **Served-value correctness** (wide == prod180 rollup == raw runtime 180d aggregate):
+
+```bash
+python3 spotcheck_wide_serving.py
+```
+
+Expect `ALL_PASS` (12/12). Verified 2026-06-29: 12/12 at as_of `2026-04-10`.
+
+**Defense in depth (Jinlong / Go side):** `main.go` should count an empty serving response as a distinct outcome, NOT a success. See `GO_HANDOFF_JINLONG.md`.
+
+**Cluster footprint:** the full run needs the cluster scaled UP for throughput (TiKV/TiDB) before steps 2-6 — a scaled-in footprint can't sustain 1000 EPS. Note the benchmark and the pool build pin `tidb_isolation_read_engines='tikv'`, so they run TiKV-only and do NOT use TiFlash; TiFlash sits idle during the run and can be scaled down to save RU (keep the replica definition for the analytics story — do not `SET TIFLASH REPLICA 0`). Only an ad-hoc query *without* the TiKV pin can get routed to TiFlash MPP and OOM on a scaled-in footprint, so pin `tikv` for any manual probing.
+
 ## 4. Run a tiny validation first
 
 Before full scale, run a short validation with a small duration and confirm the report format. This is not for performance claims.
@@ -125,6 +159,7 @@ Notes:
 - `--hosts` and `--ssh-key` are required (the script exits if missing). `--workload` must be passed explicitly; if omitted it silently falls back to a default filename that step 3 does not produce.
 - `--remote-dir` must point at wherever the bundle was deployed on the hosts (this matches the `cd` path in step 1). The script's built-in default is a different path.
 - The fleet divides `--target-event-eps` across the worker processes, so the cluster sees ~1000 events/sec total, not per host.
+- **Concurrency ladder (Intuit Additional Requirement #5):** in addition to the 1000 EPS run, run the same fleet at `--target-event-eps` 100, 200, 500, and 1000 (separate `--output-prefix` each) and report P50/P95/P99 + TPS at each level. The value is the **curve** — flat latency as load climbs proves headroom and directly answers Intuit's "does it hold at scale" doubt — not any single point. Each rung should be a sustained 5-10 min run, not a burst.
 - Use `conn-fanout` for the customer-facing run (as above). `conn-fanout` applies real backpressure across the connection pool; `event-fanout` has no backpressure and folds connection-wait into query time, which inflates the wall-clock latency shown to the customer when the pool is contended. Avoid `worker-pool`: the per-event SLA / cutoff metrics are only recorded in the fanout modes (the report footnotes those tables otherwise).
 
 ## 6. Generate the customer report immediately after the run
@@ -144,3 +179,12 @@ Notes:
 - If `--fleet-summary` is omitted, the report falls back to deriving the fleet shape from the per-host result files (summing the per-process target EPS and connections across processes, and taking the MAX elapsed since the processes run concurrently). Prefer passing `--fleet-summary` for the customer report so the headline numbers are authoritative.
 
 Do not delete/recycle EC2 instances until the Markdown report and JSON report have been reviewed.
+
+## Disclosures for the customer report
+
+State these up front so the numbers are read correctly and we are not caught over-claiming:
+
+- **180d window coverage:** fully backed on transactions; **~160 days on device** (device data starts `2025-11-01`, so the earliest ~20 days of a 180-day window ending `2026-04-10` have no device rows). Aggregates are correct relative to the loaded data (wide == raw verified); a true full-180 device window is a backfill item (Additional Requirement #6 / POC).
+- **Latency boundary:** reported latency is client event wall-clock (fan-out to fan-in), which already includes one real loadgen->TiDB network round trip. The spec assumes ~10ms app<->service network; state headroom against the 300ms (and Andrew's 350ms) end-to-end SLA rather than implying DB-only.
+- **Read-strategy scope:** the load test exercises the production read pattern (65 bundled SQL, with the 12 180d bundles served from the wide row). The naive ~1200-individual-queries-per-event form is the single-event baseline (it cannot meet SLA at 1000 EPS); do **not** claim both strategies were load-tested at 1000 QPS.
+- **Serving coverage:** confirm `serving_coverage_check.py` reported >=99% for the run's pool, so empty serving lookups did not pad the 65/65 number.

@@ -13,6 +13,16 @@ case loudly, which is the mitigation we chose on the Python side.
 Also: **main.go was not compiled where these edits were staged** (no Go toolchain). Please rebuild it on the
 EC2 host via `validate_event_report_bundle.sh` (checklist step 1) before the run — that catches any compile error.
 
+## NEW (2026-06-29) — serving coverage makes the empty-row guard run-blocking
+
+Measured on the Premium cluster: the wide serving table (`risk_feature_serving_wide`) covers through as_of `2026-04-10`, but base data now runs to `2026-05-28`, and a fresh `ORDER BY RAND()` pool references ~11% of days the table does not have. Each 180d serving bundle is a point lookup keyed by (bundle, key, as_of = the event's own date); an uncovered (bundle, key, date) returns **zero rows**, which today counts as a fast success (item 2 below) → ~10% of events report 12 hollow "instant successes" and the 65/65 headline is inflated. The served **values are correct where present** (wide == raw == prod180, 12/12 verified) — this is a coverage problem, not a correctness one.
+
+Two things for the run:
+1. **Rebuild/refresh the wide serving table for the run pool's date range** before the run (it is an MV that must be refreshed to the run window). Ravish ships a preflight, `serving_coverage_check.py`, that fails loud below 99% coverage — run it after the pool build. **(Still your side — needs the cluster + your build process.)**
+2. **The empty-serving guard is now IMPLEMENTED in `main.go` (v4.5.4).** A serving bundle (its SQL hits `risk_feature_serving*`, detected at startup into `servingTemplates`) that returns zero rows is now classified as a distinct `empty` outcome in **conn-fanout**: it is NOT counted as a success (so it can't pad 65/65) and NOT as an error (so it can't trip DEGRADED). Run-level count is emitted as `empty_serving` in the result JSON. **Verified: `go build` + `go vet` clean.** Please rebuild via `validate_event_report_bundle.sh` and **confirm the `empty_serving` count behaves as expected in your validation run** (it is scoped to conn-fanout only; worker-pool/event-fanout still use the old success=qerr==nil logic). Implementation: `fetchRowsCount()`, the `servingTemplates` map, and the guard in `runOneEventConnFanout`.
+
+Also: scale the cluster up (TiKV/TiDB) for throughput before the run. The benchmark and pool build pin `tidb_isolation_read_engines='tikv'`, so they are TiKV-only and do not use TiFlash (it can be scaled down to save RU during the run; keep the replica for the analytics story). A manual query without that pin can get pushed to TiFlash MPP and OOM on a scaled-in footprint — pin tikv when probing.
+
 ## Worth deciding before the customer run
 1. **Skipped (null-binding) bundles count as successes** toward 60/65 and 65/65, and toward
    `bundles_by_300/350/500ms` (they're marked `Success=true` with ~0ms completion).

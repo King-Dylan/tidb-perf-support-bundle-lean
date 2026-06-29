@@ -20,6 +20,10 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// servingTemplates[templateIdx] is true for bundles served from a precomputed
+// serving table (SQL hits risk_feature_serving*). Populated in main().
+var servingTemplates = map[int]bool{}
+
 type DBConfig struct {
 	Host     string `json:"host"`
 	Port     int    `json:"port"`
@@ -76,19 +80,19 @@ type EventState struct {
 }
 
 type EventResult struct {
-	EventIdx     int     `json:"event_idx"`
-	MS           float64 `json:"ms"`
-	Score60MS    float64 `json:"score60_ms"`
-	Full65MS     float64 `json:"full65_ms"`
+	EventIdx    int     `json:"event_idx"`
+	MS          float64 `json:"ms"`
+	Score60MS   float64 `json:"score60_ms"`
+	Full65MS    float64 `json:"full65_ms"`
 	SqlScore60MS float64 `json:"sql_score60_ms"`
 	SqlFull65MS  float64 `json:"sql_full65_ms"`
-	By300        int     `json:"bundles_by_300ms"`
-	By350        int     `json:"bundles_by_350ms"`
-	By500        int     `json:"bundles_by_500ms"`
-	Successes    int64   `json:"successes"`
-	Errors       int64   `json:"errors"`
-	Skipped      int     `json:"skipped"`
-	CompletedAt  int64   `json:"completed_at_unix_nano"`
+	By300       int     `json:"bundles_by_300ms"`
+	By350       int     `json:"bundles_by_350ms"`
+	By500       int     `json:"bundles_by_500ms"`
+	Successes   int64   `json:"successes"`
+	Errors      int64   `json:"errors"`
+	Skipped     int     `json:"skipped"`
+	CompletedAt int64   `json:"completed_at_unix_nano"`
 }
 
 type WorkerMetrics struct {
@@ -112,6 +116,7 @@ type QueryOutcome struct {
 	CompletedMS float64
 	Success     bool
 	Skipped     bool
+	Empty       bool
 	Error       string
 }
 
@@ -121,6 +126,7 @@ type FanoutMetrics struct {
 	QueueMS         []float64
 	QueryByTemplate map[int][]float64
 	Errors          int64
+	EmptyServing    int64
 	FirstErrors     []string
 }
 
@@ -132,6 +138,7 @@ type RunStats struct {
 	QueueMS          []float64
 	QueryByTemplate  map[int][]float64
 	TotalErrors      int64
+	EmptyServing     int64
 	FirstQueryErrors []string
 	ReadyWorkers     int
 	SetupErrors      []string
@@ -170,6 +177,7 @@ type Result struct {
 	Full65EventEPS     float64            `json:"full65_event_eps"`
 	TotalTasks         int                `json:"total_tasks"`
 	TotalErrors        int64              `json:"total_errors"`
+	EmptyServing       int64              `json:"empty_serving,omitempty"`
 	ReadTimeout        string             `json:"read_timeout"`
 	QueryTimeout       string             `json:"query_timeout"`
 	MaxExecutionTimeMS int                `json:"max_execution_time_ms"`
@@ -297,6 +305,27 @@ func configureSession(ctx context.Context, conn *sql.Conn, isolation string, max
 		return err
 	}
 	return nil
+}
+
+func fetchRowsCount(rows *sql.Rows) (int, error) {
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return 0, err
+	}
+	raw := make([]sql.RawBytes, len(cols))
+	dest := make([]interface{}, len(cols))
+	for i := range raw {
+		dest[i] = &raw[i]
+	}
+	n := 0
+	for rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, rows.Err()
 }
 
 func fetchRows(rows *sql.Rows) error {
@@ -503,7 +532,9 @@ func (m *FanoutMetrics) recordBatch(outcomes []QueryOutcome) {
 		m.QueryMS = append(m.QueryMS, out.QueryMS)
 		m.QueueMS = append(m.QueueMS, out.QueueMS)
 		m.QueryByTemplate[out.TemplateIdx] = append(m.QueryByTemplate[out.TemplateIdx], out.QueryMS)
-		if !out.Success {
+		if out.Empty {
+			m.EmptyServing++
+			} else if !out.Success {
 			m.Errors++
 			if out.Error != "" && len(m.FirstErrors) < 20 {
 				m.FirstErrors = append(m.FirstErrors, out.Error)
@@ -682,19 +713,19 @@ func runOneEventFanout(
 		sqlFull65MS = sqlDurations[templateCount-1]
 	}
 	eventDone <- EventResult{
-		EventIdx:     eventIdx,
-		MS:           float64(completedNs-eventStartNs) / 1e6,
-		Score60MS:    score60MS,
-		Full65MS:     full65MS,
-		By300:        by300,
-		By350:        by350,
-		By500:        by500,
+		EventIdx:    eventIdx,
+		MS:          float64(completedNs-eventStartNs) / 1e6,
+		Score60MS:   score60MS,
+		Full65MS:    full65MS,
+		By300:       by300,
+		By350:       by350,
+		By500:       by500,
 		SqlScore60MS: sqlScore60MS,
 		SqlFull65MS:  sqlFull65MS,
-		Successes:    successesN,
-		Errors:       atomic.LoadInt64(&errorsN),
-		Skipped:      skipped,
-		CompletedAt:  completedNs,
+		Successes:   successesN,
+		Errors:      atomic.LoadInt64(&errorsN),
+		Skipped:     skipped,
+		CompletedAt: completedNs,
 	}
 }
 
@@ -821,6 +852,7 @@ func runEventFanout(
 		QueueMS:          append([]float64(nil), metrics.QueueMS...),
 		QueryByTemplate:  make(map[int][]float64, len(metrics.QueryByTemplate)),
 		TotalErrors:      metrics.Errors,
+		EmptyServing:      metrics.EmptyServing,
 		FirstQueryErrors: append([]string(nil), metrics.FirstErrors...),
 		ReadyWorkers:     readyWorkers,
 		SetupErrors:      setupErrors,
@@ -955,6 +987,7 @@ func runOneEventConnFanout(
 			queryMS := 0.0
 			errText := ""
 			queueStart := time.Now()
+				empty := false
 			queueMS := 0.0
 			if bundle.Skip {
 				success = true
@@ -973,11 +1006,16 @@ func runOneEventConnFanout(
 					}
 					rows, qerr := stmt.QueryContext(qctx, bundle.Params...)
 					cancel()
+						nrows := 0
 					if qerr == nil {
-						qerr = fetchRows(rows)
+						nrows, qerr = fetchRowsCount(rows)
 					}
 					if qerr == nil {
 						success = true
+							if servingTemplates[idx] && nrows == 0 {
+								success = false
+								empty = true
+							}
 					} else {
 						errText = qerr.Error()
 					}
@@ -993,7 +1031,7 @@ func runOneEventConnFanout(
 				if atomic.AddInt64(&successes, 1) == 60 {
 					atomic.CompareAndSwapInt64(&score60Ns, 0, completedNs)
 				}
-			} else {
+			} else if !empty {
 				atomic.AddInt64(&errorsN, 1)
 			}
 			outcomes[pos] = QueryOutcome{
@@ -1003,6 +1041,7 @@ func runOneEventConnFanout(
 				CompletedMS: completedMS,
 				Success:     success,
 				Skipped:     skipped,
+					Empty:       empty,
 				Error:       errText,
 			}
 		}(pos, idx, bundle)
@@ -1058,19 +1097,19 @@ func runOneEventConnFanout(
 		sqlFull65MS = sqlDurations[templateCount-1]
 	}
 	eventDone <- EventResult{
-		EventIdx:     eventIdx,
-		MS:           float64(completedNs-eventStartNs) / 1e6,
-		Score60MS:    score60MS,
-		Full65MS:     full65MS,
-		By300:        by300,
-		By350:        by350,
-		By500:        by500,
+		EventIdx:    eventIdx,
+		MS:          float64(completedNs-eventStartNs) / 1e6,
+		Score60MS:   score60MS,
+		Full65MS:    full65MS,
+		By300:       by300,
+		By350:       by350,
+		By500:       by500,
 		SqlScore60MS: sqlScore60MS,
 		SqlFull65MS:  sqlFull65MS,
-		Successes:    successesN,
-		Errors:       atomic.LoadInt64(&errorsN),
-		Skipped:      skipped,
-		CompletedAt:  completedNs,
+		Successes:   successesN,
+		Errors:      atomic.LoadInt64(&errorsN),
+		Skipped:     skipped,
+		CompletedAt: completedNs,
 	}
 }
 
@@ -1177,6 +1216,7 @@ func runConnFanout(
 		QueueMS:          append([]float64(nil), metrics.QueueMS...),
 		QueryByTemplate:  make(map[int][]float64, len(metrics.QueryByTemplate)),
 		TotalErrors:      metrics.Errors,
+		EmptyServing:      metrics.EmptyServing,
 		FirstQueryErrors: append([]string(nil), metrics.FirstErrors...),
 		ReadyWorkers:     readyWorkers,
 		SetupErrors:      setupErrors,
@@ -1247,6 +1287,7 @@ func emitResult(
 		Full65EventEPS:     full65EPS,
 		TotalTasks:         totalTasks,
 		TotalErrors:        stats.TotalErrors,
+		EmptyServing:        stats.EmptyServing,
 		ReadTimeout:        readTimeout.String(),
 		QueryTimeout:       queryTimeout.String(),
 		MaxExecutionTimeMS: maxExecMS,
@@ -1396,6 +1437,9 @@ func main() {
 	templateIdx := make(map[string]int, len(workload.Templates))
 	for idx, tmpl := range workload.Templates {
 		templateIdx[tmpl.BundleID] = idx
+		if strings.Contains(strings.ToLower(tmpl.SQL), "risk_feature_serving") {
+			servingTemplates[idx] = true
+		}
 	}
 	totalTasks := eventsToRun * len(workload.Templates)
 	if *executionMode != "worker-pool" && *executionMode != "event-fanout" && *executionMode != "conn-fanout" {
